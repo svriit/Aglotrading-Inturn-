@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard - Aglo Trading</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+
+    <!-- Top Bar -->
+    <header class="dash-header">
+        <div class="dash-header-left">
+            <a href="/" class="brand-link">
+                <span class="brand-icon">&#9651;</span>
+                <span class="brand-text">Aglo Trading</span>
+            </a>
+        </div>
+        <div class="dash-header-center">
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot disconnected"></span>
+                <span class="status-text">Disconnected</span>
+            </div>
+        </div>
+        <div class="dash-header-right">
+            <div class="account-info" id="accountInfo" style="display:none;">
+                <span class="account-name" id="accountName"></span>
+                <span class="account-balance" id="accountBalance">$0.00</span>
+                <span class="account-type" id="accountType"></span>
+            </div>
+            <button class="btn btn-sm btn-outline" id="authBtn" onclick="showAuthModal()">Connect Account</button>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="dash-main">
+        <!-- Left Sidebar - Market Selection -->
+        <aside class="dash-sidebar">
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">Markets</h3>
+                <div class="market-search">
+                    <input type="text" id="marketSearch" placeholder="Search markets..." class="input-search">
+                </div>
+                <div class="market-list" id="marketList">
+                    <div class="market-group">
+                        <div class="market-group-header" onclick="toggleMarketGroup(this)">
+                            <span>Synthetic Indices</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="market-group-items">
+                            <div class="market-item active" data-symbol="R_10" onclick="selectSymbol('R_10', 'Volatility 10 Index')">
+                                <span class="market-name">Volatility 10</span>
+                                <span class="market-price" id="price_R_10">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="R_25" onclick="selectSymbol('R_25', 'Volatility 25 Index')">
+                                <span class="market-name">Volatility 25</span>
+                                <span class="market-price" id="price_R_25">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="R_50" onclick="selectSymbol('R_50', 'Volatility 50 Index')">
+                                <span class="market-name">Volatility 50</span>
+                                <span class="market-price" id="price_R_50">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="R_75" onclick="selectSymbol('R_75', 'Volatility 75 Index')">
+                                <span class="market-name">Volatility 75</span>
+                                <span class="market-price" id="price_R_75">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="R_100" onclick="selectSymbol('R_100', 'Volatility 100 Index')">
+                                <span class="market-name">Volatility 100</span>
+                                <span class="market-price" id="price_R_100">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="1HZ10V" onclick="selectSymbol('1HZ10V', 'Volatility 10 (1s)')">
+                                <span class="market-name">Vol 10 (1s)</span>
+                                <span class="market-price" id="price_1HZ10V">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="1HZ100V" onclick="selectSymbol('1HZ100V', 'Volatility 100 (1s)')">
+                                <span class="market-name">Vol 100 (1s)</span>
+                                <span class="market-price" id="price_1HZ100V">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="market-group">
+                        <div class="market-group-header" onclick="toggleMarketGroup(this)">
+                            <span>Jump Indices</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="market-group-items collapsed">
+                            <div class="market-item" data-symbol="JD10" onclick="selectSymbol('JD10', 'Jump 10 Index')">
+                                <span class="market-name">Jump 10</span>
+                                <span class="market-price" id="price_JD10">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="JD25" onclick="selectSymbol('JD25', 'Jump 25 Index')">
+                                <span class="market-name">Jump 25</span>
+                                <span class="market-price" id="price_JD25">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="JD50" onclick="selectSymbol('JD50', 'Jump 50 Index')">
+                                <span class="market-name">Jump 50</span>
+                                <span class="market-price" id="price_JD50">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="JD75" onclick="selectSymbol('JD75', 'Jump 75 Index')">
+                                <span class="market-name">Jump 75</span>
+                                <span class="market-price" id="price_JD75">--</span>
+                            </div>
+                            <div class="market-item" data-symbol="JD100" onclick="selectSymbol('JD100', 'Jump 100 Index')">
+                                <span class="market-name">Jump 100</span>
+                                <span class="market-price" id="price_JD100">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center - Chart Area -->
+        <section class="dash-center">
+            <!-- Chart Header -->
+            <div class="chart-header">
+                <div class="chart-symbol-info">
+                    <h2 id="chartSymbolName">Volatility 10 Index</h2>
+                    <span class="chart-price" id="chartCurrentPrice">--</span>
+                    <span class="chart-change" id="chartPriceChange"></span>
+                </div>
+                <div class="chart-controls">
+                    <div class="chart-timeframes">
+                        <button class="tf-btn active" data-granularity="0" onclick="changeTimeframe(this, 0)">Ticks</button>
+                        <button class="tf-btn" data-granularity="60" onclick="changeTimeframe(this, 60)">1m</button>
+                        <button class="tf-btn" data-granularity="300" onclick="changeTimeframe(this, 300)">5m</button>
+                        <button class="tf-btn" data-granularity="900" onclick="changeTimeframe(this, 900)">15m</button>
+                        <button class="tf-btn" data-granularity="3600" onclick="changeTimeframe(this, 3600)">1h</button>
+                    </div>
+                    <div class="chart-types">
+                        <button class="ct-btn active" data-type="line" onclick="changeChartType('line', this)">Line</button>
+                        <button class="ct-btn" data-type="candle" onclick="changeChartType('candle', this)">Candles</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Canvas -->
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+                <div class="chart-overlay" id="chartOverlay">
+                    <p>Select a market to view chart</p>
+                </div>
+            </div>
+
+            <!-- Bottom Panel - Open Positions & Trade History -->
+            <div class="bottom-panel">
+                <div class="bottom-tabs">
+                    <button class="bottom-tab active" onclick="switchBottomTab('positions', this)">Open Positions</button>
+                    <button class="bottom-tab" onclick="switchBottomTab('history', this)">Trade History</button>
+                </div>
+                <div class="bottom-content">
+                    <div id="positionsPanel" class="tab-panel active">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Contract</th>
+                                    <th>Type</th>
+                                    <th>Entry</th>
+                                    <th>Current</th>
+                                    <th>Stake</th>
+                                    <th>Payout</th>
+                                    <th>P&L</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionsBody">
+                                <tr class="empty-row">
+                                    <td colspan="8">No open positions. Place a trade to get started.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="historyPanel" class="tab-panel">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Contract</th>
+                                    <th>Type</th>
+                                    <th>Stake</th>
+                                    <th>Payout</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody">
+                                <tr class="empty-row">
+                                    <td colspan="6">Connect your account to view trade history.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Sidebar - Trading Panel -->
+        <aside class="dash-trading-panel">
+            <div class="trading-section">
+                <h3 class="trading-title">Place Trade</h3>
+
+                <!-- Contract Type -->
+                <div class="form-group">
+                    <label>Trade Type</label>
+                    <div class="trade-type-selector">
+                        <button class="trade-type-btn active" data-type="rise_fall" onclick="selectTradeType('rise_fall', this)">
+                            Rise/Fall
+                        </button>
+                        <button class="trade-type-btn" data-type="higher_lower" onclick="selectTradeType('higher_lower', this)">
+                            Higher/Lower
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Duration -->
+                <div class="form-group">
+                    <label>Duration</label>
+                    <div class="duration-row">
+                        <input type="number" id="durationValue" value="5" min="1" max="365" class="input-field duration-input">
+                        <select id="durationUnit" class="input-field duration-select">
+                            <option value="t">Ticks</option>
+                            <option value="s">Seconds</option>
+                            <option value="m" selected>Minutes</option>
+                            <option value="h">Hours</option>
+                            <option value="d">Days</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Stake -->
+                <div class="form-group">
+                    <label>Stake (USD)</label>
+                    <div class="stake-row">
+                        <button class="stake-btn" onclick="adjustStake(-1)">-</button>
+                        <input type="number" id="stakeAmount" value="1" min="0.35" step="0.5" class="input-field stake-input">
+                        <button class="stake-btn" onclick="adjustStake(1)">+</button>
+                    </div>
+                    <div class="quick-stakes">
+                        <button onclick="setStake(0.5)">$0.5</button>
+                        <button onclick="setStake(1)">$1</button>
+                        <button onclick="setStake(5)">$5</button>
+                        <button onclick="setStake(10)">$10</button>
+                        <button onclick="setStake(25)">$25</button>
+                    </div>
+                </div>
+
+                <!-- Payout Preview -->
+                <div class="payout-preview">
+                    <div class="payout-row">
+                        <span>Potential Payout:</span>
+                        <span id="potentialPayout" class="payout-value">--</span>
+                    </div>
+                    <div class="payout-row">
+                        <span>Potential Profit:</span>
+                        <span id="potentialProfit" class="profit-value">--</span>
+                    </div>
+                </div>
+
+                <!-- Buy Buttons -->
+                <div class="trade-buttons">
+                    <button class="btn-trade btn-rise" id="btnRise" onclick="placeTrade('CALL')">
+                        <span class="trade-arrow">&#9650;</span>
+                        <span class="trade-label">Rise</span>
+                        <span class="trade-payout" id="risePayout">--</span>
+                    </button>
+                    <button class="btn-trade btn-fall" id="btnFall" onclick="placeTrade('PUT')">
+                        <span class="trade-arrow">&#9660;</span>
+                        <span class="trade-label">Fall</span>
+                        <span class="trade-payout" id="fallPayout">--</span>
+                    </button>
+                </div>
+
+                <!-- Trade Notifications -->
+                <div class="trade-notifications" id="tradeNotifications"></div>
+            </div>
+
+            <!-- Recent Trades Mini -->
+            <div class="trading-section">
+                <h3 class="trading-title">Recent Trades</h3>
+                <div class="recent-trades" id="recentTrades">
+                    <p class="no-trades">No recent trades</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Auth Modal -->
+    <div class="modal-overlay" id="authModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Connect Deriv Account</h3>
+                <button class="modal-close" onclick="hideAuthModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-info">
+                    Enter your Deriv API token to connect your account.
+                    You can create a token at
+                    <a href="https://app.deriv.com/account/api-token" target="_blank">app.deriv.com/account/api-token</a>.
+                </p>
+                <div class="form-group">
+                    <label>API Token</label>
+                    <input type="password" id="apiTokenInput" placeholder="Enter your Deriv API token" class="input-field">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="rememberToken">
+                        Remember token (stored in browser)
+                    </label>
+                </div>
+                <div class="modal-error" id="authError" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="hideAuthModal()">Cancel</button>
+                <button class="btn btn-primary" id="connectBtn" onclick="connectAccount()">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trade Result Modal -->
+    <div class="modal-overlay" id="tradeResultModal">
+        <div class="modal trade-result-modal">
+            <div class="modal-header">
+                <h3 id="tradeResultTitle">Trade Placed</h3>
+                <button class="modal-close" onclick="hideTradeResult()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="trade-result-content" id="tradeResultContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="hideTradeResult()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/trading.js') }}"></script>
+</body>
+</html>

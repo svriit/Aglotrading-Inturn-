@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aglo Trading - Binary Options Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="landing-page">
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-icon">&#9651;</span>
+                <span class="brand-text">Aglo Trading</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#markets">Markets</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="/dashboard" class="btn btn-primary">Start Trading</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Trade Binary Options<br><span class="highlight">With Confidence</span></h1>
+            <p class="hero-subtitle">
+                Real-time market data, instant execution, and powerful charting tools.
+                Trade on Forex, Synthetics, Stocks, and more with the Deriv API.
+            </p>
+            <div class="hero-actions">
+                <a href="/dashboard" class="btn btn-primary btn-lg">Open Trading Dashboard</a>
+                <a href="#how-it-works" class="btn btn-outline btn-lg">Learn More</a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-value">24/7</span>
+                    <span class="stat-label">Synthetic Markets</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">1s</span>
+                    <span class="stat-label">Min Duration</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">100+</span>
+                    <span class="stat-label">Markets</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">$0.35</span>
+                    <span class="stat-label">Min Stake</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="mock-chart">
+                <div class="chart-line"></div>
+                <div class="chart-candles">
+                    <div class="candle green"></div>
+                    <div class="candle red"></div>
+                    <div class="candle green"></div>
+                    <div class="candle green"></div>
+                    <div class="candle red"></div>
+                    <div class="candle green"></div>
+                    <div class="candle red"></div>
+                    <div class="candle green"></div>
+                    <div class="candle green"></div>
+                    <div class="candle red"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2 class="section-title">Platform Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">&#9889;</div>
+                    <h3>Real-Time Data</h3>
+                    <p>Live tick-by-tick price feeds via WebSocket. See every market movement as it happens.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128200;</div>
+                    <h3>Live Charts</h3>
+                    <p>Interactive candlestick and line charts with real-time updates and technical indicators.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#9201;</div>
+                    <h3>Instant Execution</h3>
+                    <p>One-click trading with Rise/Fall, Higher/Lower, and Touch/No Touch contracts.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128176;</div>
+                    <h3>Flexible Stakes</h3>
+                    <p>Trade with stakes as low as $0.35 with configurable durations from 1 second to 365 days.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128274;</div>
+                    <h3>Secure API</h3>
+                    <p>Your trades are executed through Deriv's secure, regulated API infrastructure.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128202;</div>
+                    <h3>Trade History</h3>
+                    <p>Full portfolio tracking, profit/loss statements, and detailed trade history.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Markets -->
+    <section id="markets" class="markets">
+        <div class="container">
+            <h2 class="section-title">Available Markets</h2>
+            <div class="markets-grid">
+                <div class="market-card">
+                    <h3>Synthetic Indices</h3>
+                    <p>Volatility 10, 25, 50, 75, 100 - Trade 24/7 on simulated markets with constant volatility.</p>
+                    <span class="market-tag">24/7 Available</span>
+                </div>
+                <div class="market-card">
+                    <h3>Forex</h3>
+                    <p>EUR/USD, GBP/USD, USD/JPY and major currency pairs with competitive spreads.</p>
+                    <span class="market-tag">Major Pairs</span>
+                </div>
+                <div class="market-card">
+                    <h3>Commodities</h3>
+                    <p>Gold, Silver, Oil and other commodities with binary options contracts.</p>
+                    <span class="market-tag">Popular</span>
+                </div>
+                <div class="market-card">
+                    <h3>Stock Indices</h3>
+                    <p>Wall Street, US Tech 100 and global indices available for binary trading.</p>
+                    <span class="market-tag">Global Markets</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="how-it-works">
+        <div class="container">
+            <h2 class="section-title">How It Works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Connect Your Account</h3>
+                    <p>Enter your Deriv API token to connect your trading account. Use a demo account to practice risk-free.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Choose Your Market</h3>
+                    <p>Select from Synthetics, Forex, Commodities, or Stock Indices. Pick your preferred asset.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Place Your Trade</h3>
+                    <p>Set your stake, duration, and predict whether the price will rise or fall. Click to execute.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>Collect Your Payout</h3>
+                    <p>If your prediction is correct, you receive the payout. Track all trades in your portfolio.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Start Trading?</h2>
+            <p>Open the trading dashboard and connect your Deriv account to begin.</p>
+            <a href="/dashboard" class="btn btn-primary btn-lg">Launch Dashboard</a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="brand-icon">&#9651;</span>
+                    <span>Aglo Trading</span>
+                </div>
+                <p class="footer-disclaimer">
+                    Trading binary options involves substantial risk. This platform is for educational purposes.
+                    Past performance does not guarantee future results. Trade responsibly.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
