@@ -116,11 +116,18 @@
                 </div>
                 <div class="chart-controls">
                     <div class="chart-timeframes">
-                        <button class="tf-btn active" data-granularity="0" onclick="changeTimeframe(this, 0)">Ticks</button>
+                        <button class="tf-btn active" data-granularity="0" onclick="changeTimeframe(this, 0)">5s</button>
                         <button class="tf-btn" data-granularity="60" onclick="changeTimeframe(this, 60)">1m</button>
+                        <button class="tf-btn" data-granularity="120" onclick="changeTimeframe(this, 120)">2m</button>
                         <button class="tf-btn" data-granularity="300" onclick="changeTimeframe(this, 300)">5m</button>
+                        <button class="tf-btn" data-granularity="600" onclick="changeTimeframe(this, 600)">10m</button>
                         <button class="tf-btn" data-granularity="900" onclick="changeTimeframe(this, 900)">15m</button>
-                        <button class="tf-btn" data-granularity="3600" onclick="changeTimeframe(this, 3600)">1h</button>
+                        <button class="tf-btn" data-granularity="1800" onclick="changeTimeframe(this, 1800)">30m</button>
+                        <button class="tf-btn" data-granularity="3600" onclick="changeTimeframe(this, 3600)">1H</button>
+                        <button class="tf-btn" data-granularity="7200" onclick="changeTimeframe(this, 7200)">2H</button>
+                        <button class="tf-btn" data-granularity="14400" onclick="changeTimeframe(this, 14400)">4H</button>
+                        <button class="tf-btn" data-granularity="28800" onclick="changeTimeframe(this, 28800)">8H</button>
+                        <button class="tf-btn" data-granularity="86400" onclick="changeTimeframe(this, 86400)">1D</button>
                     </div>
                     <div class="chart-types">
                         <button class="ct-btn active" data-type="line" onclick="changeChartType('line', this)">Line</button>
