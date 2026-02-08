@@ -19,6 +19,10 @@ let reqIdCounter = 0;
 let pendingRequests = {};
 let lastPrice = null;
 let previousPrice = null;
+let allSymbols = [];       // Full list of symbols from API
+let activeCategory = 'all';
+let searchQuery = '';
+let symbolPrices = {};     // Track last prices for price flash
 
 const APP_ID = '1089'; // Deriv demo app ID
 
@@ -65,6 +69,8 @@ function connectDeriv() {
 
     derivWs.onopen = () => {
         updateConnectionStatus(true);
+        // Load available markets from Deriv API
+        loadActiveSymbols();
         // Subscribe to default symbol ticks
         subscribeTicks(currentSymbol);
         // Load historical data
@@ -306,10 +312,15 @@ function handleTick(data) {
         updatePriceDisplay(price);
     }
 
-    // Update sidebar price
+    // Update sidebar price with color flash
     const priceEl = document.getElementById(`price_${symbol}`);
     if (priceEl) {
+        const prevPrice = symbolPrices[symbol];
         priceEl.textContent = formatPrice(price);
+        if (prevPrice !== undefined) {
+            priceEl.className = 'market-price ' + (price > prevPrice ? 'price-up' : price < prevPrice ? 'price-down' : '');
+        }
+        symbolPrices[symbol] = price;
     }
 
     // Hide chart overlay
@@ -366,8 +377,48 @@ function handleCandles(data) {
 }
 
 function handleActiveSymbols(data) {
-    // Could be used to dynamically populate the market list
-    console.log('Active symbols loaded:', data.active_symbols?.length);
+    if (data.error || !data.active_symbols) {
+        console.error('Failed to load symbols:', data.error?.message);
+        return;
+    }
+
+    const symbols = data.active_symbols;
+    allSymbols = [];
+
+    symbols.forEach(s => {
+        // Categorize: currency (forex), commodity, or composite (synthetic indices)
+        const market = (s.market || '').toLowerCase();
+        const submarket = (s.submarket || '').toLowerCase();
+        let category = 'composite'; // default
+
+        if (market === 'forex' || market === 'cryptocurrency') {
+            category = 'currency';
+        } else if (market === 'commodities' || market === 'commodity') {
+            category = 'commodity';
+        } else if (market === 'synthetic_index' || market === 'indices' ||
+                   market === 'stock_indices' || market === 'basket_index') {
+            category = 'composite';
+        } else if (submarket.includes('forex') || submarket.includes('currency') || submarket.includes('crypto')) {
+            category = 'currency';
+        } else if (submarket.includes('metal') || submarket.includes('energy') || submarket.includes('commodity')) {
+            category = 'commodity';
+        }
+
+        allSymbols.push({
+            symbol: s.symbol,
+            displayName: s.display_name,
+            market: s.market_display_name || s.market,
+            submarket: s.submarket_display_name || s.submarket,
+            category: category,
+            isTradingSuspended: s.is_trading_suspended,
+        });
+    });
+
+    // Sort alphabetically within each category
+    allSymbols.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    // Populate the sidebar
+    populateMarketSidebar();
 }
 
 // ─── Trading ──────────────────────────────────────────────────────────────────
@@ -712,6 +763,179 @@ function showNotification(message, type) {
     }
 }
 
+// ─── Dynamic Market Sidebar ───────────────────────────────────────────────────
+
+function loadActiveSymbols() {
+    // Request active symbols from Deriv API
+    derivWs.send(JSON.stringify({
+        active_symbols: 'brief',
+        product_type: 'basic'
+    }));
+}
+
+function populateMarketSidebar() {
+    const containers = {
+        currency: document.getElementById('items_currency'),
+        commodity: document.getElementById('items_commodity'),
+        composite: document.getElementById('items_composite'),
+    };
+
+    // Clear containers
+    Object.values(containers).forEach(c => { if (c) c.innerHTML = ''; });
+
+    const counts = { currency: 0, commodity: 0, composite: 0 };
+
+    allSymbols.forEach(s => {
+        if (s.isTradingSuspended) return;
+
+        const container = containers[s.category];
+        if (!container) return;
+
+        counts[s.category]++;
+
+        const div = document.createElement('div');
+        div.className = 'market-item';
+        if (s.symbol === currentSymbol) div.classList.add('active');
+        div.dataset.symbol = s.symbol;
+        div.dataset.name = s.displayName;
+        div.dataset.category = s.category;
+        div.onclick = () => selectSymbol(s.symbol, s.displayName);
+
+        div.innerHTML = `
+            <span class="market-name" title="${s.displayName}">${s.displayName}</span>
+            <span class="market-price" id="price_${s.symbol}">--</span>
+        `;
+
+        container.appendChild(div);
+    });
+
+    // Update counts
+    Object.keys(counts).forEach(cat => {
+        const countEl = document.getElementById('count_' + cat);
+        if (countEl) countEl.textContent = counts[cat];
+    });
+
+    // Hide loading
+    const loadingEl = document.getElementById('marketLoading');
+    if (loadingEl) loadingEl.style.display = 'none';
+
+    // Expand composite group by default (it has synthetics)
+    const compositeItems = document.getElementById('items_composite');
+    if (compositeItems) compositeItems.classList.remove('collapsed');
+
+    // Apply current search/category filter
+    applyFilters();
+}
+
+// ─── Interactive Search & Category Filtering ──────────────────────────────────
+
+function filterByCategory(category, btn) {
+    document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeCategory = category;
+    applyFilters();
+}
+
+function applyFilters() {
+    const query = searchQuery.toLowerCase().trim();
+    const groups = document.querySelectorAll('.market-group');
+    let totalVisible = 0;
+
+    groups.forEach(group => {
+        const cat = group.dataset.category;
+        // Hide entire group if category doesn't match
+        if (activeCategory !== 'all' && cat !== activeCategory) {
+            group.classList.add('hidden-category');
+            return;
+        }
+        group.classList.remove('hidden-category');
+
+        const items = group.querySelectorAll('.market-item');
+        let groupVisible = 0;
+
+        items.forEach(item => {
+            const name = (item.dataset.name || '').toLowerCase();
+            const symbol = (item.dataset.symbol || '').toLowerCase();
+            const matches = !query || name.includes(query) || symbol.includes(query);
+
+            if (matches) {
+                item.classList.remove('hidden-item');
+                groupVisible++;
+                totalVisible++;
+
+                // Highlight matching text
+                const nameEl = item.querySelector('.market-name');
+                const originalName = item.dataset.name;
+                if (query && name.includes(query)) {
+                    const idx = name.indexOf(query);
+                    const before = originalName.substring(0, idx);
+                    const match = originalName.substring(idx, idx + query.length);
+                    const after = originalName.substring(idx + query.length);
+                    nameEl.innerHTML = `${escapeHtml(before)}<span class="highlight">${escapeHtml(match)}</span>${escapeHtml(after)}`;
+                } else {
+                    nameEl.textContent = originalName;
+                }
+            } else {
+                item.classList.add('hidden-item');
+                // Reset highlight
+                item.querySelector('.market-name').textContent = item.dataset.name;
+            }
+        });
+
+        // If searching, auto-expand groups that have matches
+        const itemsContainer = group.querySelector('.market-group-items');
+        if (query && groupVisible > 0 && itemsContainer) {
+            itemsContainer.classList.remove('collapsed');
+        }
+    });
+
+    // Show/hide no results
+    const noResults = document.getElementById('noResults');
+    if (noResults) {
+        noResults.style.display = (totalVisible === 0 && (query || activeCategory !== 'all')) ? 'block' : 'none';
+    }
+
+    // Update results count when searching
+    const countEl = document.getElementById('searchResultsCount');
+    if (countEl) {
+        countEl.textContent = query ? `${totalVisible} result${totalVisible !== 1 ? 's' : ''} found` : '';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Set up interactive search with debounce
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('marketSearch');
+    let searchTimeout = null;
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value;
+            // Debounce for smooth typing
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchQuery = query;
+                applyFilters();
+            }, 150);
+        });
+
+        // Clear search on Escape
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                searchInput.value = '';
+                searchQuery = '';
+                applyFilters();
+                searchInput.blur();
+            }
+        });
+    }
+});
+
 // ─── User Interactions ────────────────────────────────────────────────────────
 function selectSymbol(symbol, name) {
     // Update active state
@@ -847,20 +1071,6 @@ function switchBottomTab(tab, btn) {
     btn.classList.add('active');
     document.getElementById(tab + 'Panel').classList.add('active');
 }
-
-// Market search filter
-document.addEventListener('DOMContentLoaded', () => {
-    const searchInput = document.getElementById('marketSearch');
-    if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            document.querySelectorAll('.market-item').forEach(item => {
-                const name = item.querySelector('.market-name').textContent.toLowerCase();
-                item.style.display = name.includes(query) ? 'flex' : 'none';
-            });
-        });
-    }
-});
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 function formatPrice(price) {

@@ -608,22 +608,90 @@ a:hover {
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-size: 13px;
-    margin-bottom: 12px;
+    margin-bottom: 4px;
 }
 
 .input-search:focus {
     outline: none;
     border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.search-results-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 0 4px 6px;
+    min-height: 18px;
+}
+
+/* ── Category Tabs ─────────────────────────────────────────────────────── */
+.market-category-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    margin-bottom: 10px;
+}
+
+.cat-tab {
+    flex: 1;
+    padding: 5px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.cat-tab:hover {
+    color: var(--text-primary);
+}
+
+.cat-tab.active {
+    background: var(--accent-blue);
+    color: #fff;
+}
+
+/* ── Market Groups ─────────────────────────────────────────────────────── */
+.market-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.loading-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
 .market-group {
     margin-bottom: 4px;
 }
 
+.market-group.hidden-category {
+    display: none;
+}
+
 .market-group-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 8px;
     font-size: 13px;
     font-weight: 600;
@@ -631,10 +699,34 @@ a:hover {
     cursor: pointer;
     border-radius: var(--radius-sm);
     transition: background 0.15s;
+    gap: 6px;
 }
 
 .market-group-header:hover {
     background: var(--bg-hover);
+}
+
+.group-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.group-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+    color: var(--accent-blue);
+}
+
+.group-count {
+    font-size: 10px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 500;
 }
 
 .market-group-header .arrow {
@@ -646,10 +738,6 @@ a:hover {
     display: none;
 }
 
-.market-group-items.collapsed + .market-group-header .arrow {
-    transform: rotate(-90deg);
-}
-
 .market-item {
     display: flex;
     align-items: center;
@@ -659,6 +747,10 @@ a:hover {
     cursor: pointer;
     border-radius: var(--radius-sm);
     transition: background 0.15s;
+}
+
+.market-item.hidden-item {
+    display: none;
 }
 
 .market-item:hover {
@@ -673,6 +765,17 @@ a:hover {
 .market-name {
     color: var(--text-primary);
     font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 120px;
+}
+
+.market-name .highlight {
+    background: rgba(59, 130, 246, 0.25);
+    color: var(--accent-blue);
+    border-radius: 2px;
+    padding: 0 1px;
 }
 
 .market-item.active .market-name {
@@ -683,6 +786,22 @@ a:hover {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.market-price.price-up {
+    color: var(--accent-green);
+}
+
+.market-price.price-down {
+    color: var(--accent-red);
+}
+
+.no-results {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 20px 8px;
 }
 
 /* ── Center Area ───────────────────────────────────────────────────────── */

@@ -39,72 +39,67 @@
             <div class="sidebar-section">
                 <h3 class="sidebar-title">Markets</h3>
                 <div class="market-search">
-                    <input type="text" id="marketSearch" placeholder="Search markets..." class="input-search">
+                    <input type="text" id="marketSearch" placeholder="Search markets..." class="input-search" autocomplete="off">
+                    <div class="search-results-count" id="searchResultsCount"></div>
                 </div>
+
+                <!-- Category Tabs -->
+                <div class="market-category-tabs">
+                    <button class="cat-tab active" data-category="all" onclick="filterByCategory('all', this)">All</button>
+                    <button class="cat-tab" data-category="currency" onclick="filterByCategory('currency', this)">Currency</button>
+                    <button class="cat-tab" data-category="commodity" onclick="filterByCategory('commodity', this)">Commodity</button>
+                    <button class="cat-tab" data-category="composite" onclick="filterByCategory('composite', this)">Index</button>
+                </div>
+
                 <div class="market-list" id="marketList">
-                    <div class="market-group">
-                        <div class="market-group-header" onclick="toggleMarketGroup(this)">
-                            <span>Synthetic Indices</span>
-                            <span class="arrow">&#9662;</span>
-                        </div>
-                        <div class="market-group-items">
-                            <div class="market-item active" data-symbol="R_10" onclick="selectSymbol('R_10', 'Volatility 10 Index')">
-                                <span class="market-name">Volatility 10</span>
-                                <span class="market-price" id="price_R_10">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="R_25" onclick="selectSymbol('R_25', 'Volatility 25 Index')">
-                                <span class="market-name">Volatility 25</span>
-                                <span class="market-price" id="price_R_25">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="R_50" onclick="selectSymbol('R_50', 'Volatility 50 Index')">
-                                <span class="market-name">Volatility 50</span>
-                                <span class="market-price" id="price_R_50">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="R_75" onclick="selectSymbol('R_75', 'Volatility 75 Index')">
-                                <span class="market-name">Volatility 75</span>
-                                <span class="market-price" id="price_R_75">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="R_100" onclick="selectSymbol('R_100', 'Volatility 100 Index')">
-                                <span class="market-name">Volatility 100</span>
-                                <span class="market-price" id="price_R_100">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="1HZ10V" onclick="selectSymbol('1HZ10V', 'Volatility 10 (1s)')">
-                                <span class="market-name">Vol 10 (1s)</span>
-                                <span class="market-price" id="price_1HZ10V">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="1HZ100V" onclick="selectSymbol('1HZ100V', 'Volatility 100 (1s)')">
-                                <span class="market-name">Vol 100 (1s)</span>
-                                <span class="market-price" id="price_1HZ100V">--</span>
-                            </div>
-                        </div>
+                    <!-- Loading state -->
+                    <div class="market-loading" id="marketLoading">
+                        <div class="loading-spinner"></div>
+                        <span>Loading markets...</span>
                     </div>
-                    <div class="market-group">
+
+                    <!-- Currency Section -->
+                    <div class="market-group" data-category="currency" id="group_currency">
                         <div class="market-group-header" onclick="toggleMarketGroup(this)">
-                            <span>Jump Indices</span>
+                            <span class="group-label">
+                                <span class="group-icon">&#36;</span>
+                                Currency
+                            </span>
+                            <span class="group-count" id="count_currency">0</span>
                             <span class="arrow">&#9662;</span>
                         </div>
-                        <div class="market-group-items collapsed">
-                            <div class="market-item" data-symbol="JD10" onclick="selectSymbol('JD10', 'Jump 10 Index')">
-                                <span class="market-name">Jump 10</span>
-                                <span class="market-price" id="price_JD10">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="JD25" onclick="selectSymbol('JD25', 'Jump 25 Index')">
-                                <span class="market-name">Jump 25</span>
-                                <span class="market-price" id="price_JD25">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="JD50" onclick="selectSymbol('JD50', 'Jump 50 Index')">
-                                <span class="market-name">Jump 50</span>
-                                <span class="market-price" id="price_JD50">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="JD75" onclick="selectSymbol('JD75', 'Jump 75 Index')">
-                                <span class="market-name">Jump 75</span>
-                                <span class="market-price" id="price_JD75">--</span>
-                            </div>
-                            <div class="market-item" data-symbol="JD100" onclick="selectSymbol('JD100', 'Jump 100 Index')">
-                                <span class="market-name">Jump 100</span>
-                                <span class="market-price" id="price_JD100">--</span>
-                            </div>
+                        <div class="market-group-items" id="items_currency"></div>
+                    </div>
+
+                    <!-- Commodity Section -->
+                    <div class="market-group" data-category="commodity" id="group_commodity">
+                        <div class="market-group-header" onclick="toggleMarketGroup(this)">
+                            <span class="group-label">
+                                <span class="group-icon">&#9670;</span>
+                                Commodity
+                            </span>
+                            <span class="group-count" id="count_commodity">0</span>
+                            <span class="arrow">&#9662;</span>
                         </div>
+                        <div class="market-group-items collapsed" id="items_commodity"></div>
+                    </div>
+
+                    <!-- Composite Index Section -->
+                    <div class="market-group" data-category="composite" id="group_composite">
+                        <div class="market-group-header" onclick="toggleMarketGroup(this)">
+                            <span class="group-label">
+                                <span class="group-icon">&#9651;</span>
+                                Composite Index
+                            </span>
+                            <span class="group-count" id="count_composite">0</span>
+                            <span class="arrow">&#9662;</span>
+                        </div>
+                        <div class="market-group-items collapsed" id="items_composite"></div>
+                    </div>
+
+                    <!-- No results message -->
+                    <div class="no-results" id="noResults" style="display:none;">
+                        No markets found matching your search.
                     </div>
                 </div>
             </div>
