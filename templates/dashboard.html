@@ -136,6 +136,48 @@
                 </div>
             </div>
 
+            <!-- Chart Toolbar -->
+            <div class="chart-toolbar">
+                <!-- Zoom Controls -->
+                <div class="toolbar-group">
+                    <span class="toolbar-label">Zoom</span>
+                    <button class="toolbar-btn" onclick="chart.zoomIn()" title="Zoom In">+</button>
+                    <button class="toolbar-btn" onclick="chart.zoomOut()" title="Zoom Out">-</button>
+                    <button class="toolbar-btn" onclick="chart.resetZoom()" title="Reset">&#8634;</button>
+                </div>
+
+                <div class="toolbar-divider"></div>
+
+                <!-- Indicators -->
+                <div class="toolbar-group">
+                    <span class="toolbar-label">Indicators</span>
+                    <button class="toolbar-btn toggle-btn" id="btn_sma" onclick="toggleInd('sma', this)" title="SMA (20)">SMA</button>
+                    <button class="toolbar-btn toggle-btn" id="btn_ema" onclick="toggleInd('ema', this)" title="EMA (20)">EMA</button>
+                    <button class="toolbar-btn toggle-btn" id="btn_bb" onclick="toggleInd('bb', this)" title="Bollinger Bands">BB</button>
+                </div>
+
+                <div class="toolbar-divider"></div>
+
+                <!-- Oscillators -->
+                <div class="toolbar-group">
+                    <span class="toolbar-label">Oscillators</span>
+                    <button class="toolbar-btn toggle-btn" id="btn_rsi" onclick="toggleOsc('rsi', this)" title="RSI (14)">RSI</button>
+                    <button class="toolbar-btn toggle-btn" id="btn_macd" onclick="toggleOsc('macd', this)" title="MACD (12,26,9)">MACD</button>
+                    <button class="toolbar-btn toggle-btn" id="btn_stochastic" onclick="toggleOsc('stochastic', this)" title="Stochastic (14,3)">STOCH</button>
+                </div>
+
+                <div class="toolbar-divider"></div>
+
+                <!-- Drawing Tools -->
+                <div class="toolbar-group">
+                    <span class="toolbar-label">Draw</span>
+                    <button class="toolbar-btn" onclick="startDrawing('trendline')" title="Trend Line">&#9585;</button>
+                    <button class="toolbar-btn" onclick="startDrawing('hline')" title="Horizontal Line">&#9473;</button>
+                    <button class="toolbar-btn" onclick="startDrawing('fibonacci')" title="Fibonacci Retracement">Fib</button>
+                    <button class="toolbar-btn" onclick="chart.clearDrawings()" title="Clear Drawings">&#10005;</button>
+                </div>
+            </div>
+
             <!-- Chart Canvas -->
             <div class="chart-container">
                 <canvas id="priceChart"></canvas>

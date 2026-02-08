@@ -253,11 +253,12 @@ function showAuthError(msg) {
 
 // ─── Market Data ──────────────────────────────────────────────────────────────
 function subscribeTicks(symbol) {
-    // Forget previous subscriptions
+    // Forget previous subscriptions (both ticks and candles)
     if (tickSubscriptionId) {
         derivWs.send(JSON.stringify({ forget: tickSubscriptionId }));
     }
     derivWs.send(JSON.stringify({ forget_all: 'ticks' }));
+    derivWs.send(JSON.stringify({ forget_all: 'candles' }));
 
     // Subscribe to new symbol ticks
     derivWs.send(JSON.stringify({
@@ -269,22 +270,34 @@ function subscribeTicks(symbol) {
 function loadHistory(symbol, granularity) {
     chart.clearData();
 
+    // Forget any active candle subscriptions before loading new data
+    derivWs.send(JSON.stringify({ forget_all: 'candles' }));
+
     if (granularity === 0) {
+        // Ensure chart type is line for ticks
+        chart.setType('line');
         // Load tick history
         derivWs.send(JSON.stringify({
             ticks_history: symbol,
-            count: 200,
+            count: 500,
             end: 'latest',
             style: 'ticks'
         }));
     } else {
-        // Load candle history
+        // Forget tick subscriptions when switching to candles
+        derivWs.send(JSON.stringify({ forget_all: 'ticks' }));
+        // Load candle history with subscription for live updates
         derivWs.send(JSON.stringify({
             ticks_history: symbol,
-            count: 200,
+            count: 500,
             end: 'latest',
             style: 'candles',
             granularity: granularity,
+            subscribe: 1
+        }));
+        // Re-subscribe to ticks for price updates (but not chart)
+        derivWs.send(JSON.stringify({
+            ticks: symbol,
             subscribe: 1
         }));
     }
@@ -336,8 +349,16 @@ function handleHistory(data) {
     const times = history.times;
 
     chart.clearData();
+    chart.setType('line');
     for (let i = 0; i < prices.length; i++) {
         chart.addTick(parseFloat(prices[i]), times[i]);
+    }
+
+    // Update price display from history if we have data
+    if (prices.length > 0) {
+        const latestPrice = parseFloat(prices[prices.length - 1]);
+        updatePriceDisplay(latestPrice);
+        lastPrice = latestPrice;
     }
 
     document.getElementById('chartOverlay').classList.add('hidden');
@@ -1070,6 +1091,23 @@ function switchBottomTab(tab, btn) {
 
     btn.classList.add('active');
     document.getElementById(tab + 'Panel').classList.add('active');
+}
+
+// ─── Chart Toolbar: Indicators, Oscillators, Drawing Tools ────────────────────
+
+function toggleInd(name, btn) {
+    const active = btn.classList.toggle('active');
+    chart.toggleIndicator(name, active);
+}
+
+function toggleOsc(name, btn) {
+    const active = btn.classList.toggle('active');
+    chart.toggleOscillator(name, active);
+}
+
+function startDrawing(mode) {
+    chart.setDrawingMode(mode);
+    showNotification(`Drawing mode: ${mode}. Click on the chart to place points.`, 'info');
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
