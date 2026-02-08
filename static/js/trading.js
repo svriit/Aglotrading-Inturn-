@@ -26,14 +26,36 @@ const APP_ID = '1089'; // Deriv demo app ID
 document.addEventListener('DOMContentLoaded', () => {
     chart = new TradingChart('priceChart');
 
-    // Check for saved token
+    // Check for saved API token
     const savedToken = localStorage.getItem('deriv_token');
     if (savedToken) {
         document.getElementById('apiTokenInput').value = savedToken;
     }
 
+    // Fetch app config (app_id) from server
+    fetch('/api/config')
+        .then(r => r.json())
+        .then(config => {
+            if (config.app_id) {
+                // Update the APP_ID if server provides one
+                window._DERIV_APP_ID = config.app_id;
+            }
+        })
+        .catch(() => {});
+
     connectDeriv();
 });
+
+// ─── Auto-login via OAuth token (after OAuth redirect) ────────────────────────
+function checkOAuthLogin() {
+    const oauthToken = sessionStorage.getItem('deriv_oauth_token');
+    if (oauthToken && !isAuthorized) {
+        // Auto-authorize with the OAuth token
+        derivWs.send(JSON.stringify({ authorize: oauthToken }));
+        // Clear so we don't re-auth on reconnect loops
+        sessionStorage.removeItem('deriv_oauth_token');
+    }
+}
 
 // ─── Deriv WebSocket Connection ───────────────────────────────────────────────
 function connectDeriv() {
@@ -47,6 +69,8 @@ function connectDeriv() {
         subscribeTicks(currentSymbol);
         // Load historical data
         loadHistory(currentSymbol, currentGranularity);
+        // Check if user just logged in via OAuth
+        checkOAuthLogin();
     };
 
     derivWs.onmessage = (event) => {

@@ -291,9 +291,23 @@
                 <button class="modal-close" onclick="hideAuthModal()">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- OAuth Login (Recommended) -->
+                <div class="oauth-section">
+                    <a href="/oauth/login" class="btn btn-primary btn-oauth">
+                        <span class="oauth-icon">&#9679;</span>
+                        Log in with Deriv Account
+                    </a>
+                    <p class="oauth-hint">Recommended - Sign in securely with your Deriv account via OAuth.</p>
+                </div>
+
+                <div class="auth-divider">
+                    <span>or use API token</span>
+                </div>
+
+                <!-- API Token Login -->
                 <p class="modal-info">
-                    Enter your Deriv API token to connect your account.
-                    You can create a token at
+                    Enter your Deriv API token to connect.
+                    Create one at
                     <a href="https://app.deriv.com/account/api-token" target="_blank">app.deriv.com/account/api-token</a>.
                 </p>
                 <div class="form-group">
@@ -310,7 +324,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" onclick="hideAuthModal()">Cancel</button>
-                <button class="btn btn-primary" id="connectBtn" onclick="connectAccount()">Connect</button>
+                <button class="btn btn-primary" id="connectBtn" onclick="connectAccount()">Connect with Token</button>
             </div>
         </div>
     </div>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logging In - Aglo Trading</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .oauth-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+            padding: 24px;
+        }
+        .oauth-loading h2 {
+            margin-bottom: 12px;
+        }
+        .oauth-loading p {
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 24px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .oauth-error {
+            color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 16px 24px;
+            border-radius: 8px;
+            display: none;
+            max-width: 500px;
+        }
+    </style>
+</head>
+<body>
+    <div class="oauth-loading">
+        <div class="spinner" id="spinner"></div>
+        <h2 id="statusTitle">Connecting your Deriv account...</h2>
+        <p id="statusText">Please wait while we securely log you in.</p>
+        <div class="oauth-error" id="errorBox"></div>
+    </div>
+
+    <script>
+        /*
+         * Deriv OAuth Callback Handler
+         *
+         * After OAuth authorization, Deriv redirects to:
+         *   /oauth/callback#acct1=TOKEN&token1=TOKEN&cur1=USD&acct2=...
+         *
+         * The tokens are in the URL fragment (hash), which is only
+         * accessible client-side. We extract them and redirect to
+         * the dashboard with the token.
+         */
+        (function() {
+            const hash = window.location.hash.substring(1);
+
+            if (!hash) {
+                showError('No authorization data received. Please try logging in again.');
+                return;
+            }
+
+            // Parse the hash parameters
+            const params = new URLSearchParams(hash);
+            const accounts = [];
+            let i = 1;
+
+            while (params.has('acct' + i)) {
+                accounts.push({
+                    loginid: params.get('acct' + i),
+                    token: params.get('token' + i),
+                    currency: params.get('cur' + i),
+                });
+                i++;
+            }
+
+            if (accounts.length === 0) {
+                showError('No accounts found in authorization response. Please try again.');
+                return;
+            }
+
+            // Store all accounts in sessionStorage
+            sessionStorage.setItem('deriv_oauth_accounts', JSON.stringify(accounts));
+
+            // Use the first token (or find demo account)
+            const demoAccount = accounts.find(a => a.loginid && a.loginid.startsWith('VRTC'));
+            const selectedAccount = demoAccount || accounts[0];
+
+            sessionStorage.setItem('deriv_oauth_token', selectedAccount.token);
+            sessionStorage.setItem('deriv_oauth_loginid', selectedAccount.loginid);
+
+            document.getElementById('statusTitle').textContent = 'Login successful!';
+            document.getElementById('statusText').textContent = `Account: ${selectedAccount.loginid} - Redirecting to dashboard...`;
+
+            // Redirect to dashboard
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 1000);
+
+            function showError(msg) {
+                document.getElementById('spinner').style.display = 'none';
+                document.getElementById('statusTitle').textContent = 'Login Failed';
+                document.getElementById('statusText').textContent = '';
+                const errorBox = document.getElementById('errorBox');
+                errorBox.textContent = msg;
+                errorBox.style.display = 'block';
+
+                // Add retry link
+                const retry = document.createElement('a');
+                retry.href = '/oauth/login';
+                retry.className = 'btn btn-primary';
+                retry.textContent = 'Try Again';
+                retry.style.marginTop = '16px';
+                retry.style.display = 'inline-block';
+                errorBox.parentElement.appendChild(retry);
+            }
+        })();
+    </script>
+</body>
+</html>

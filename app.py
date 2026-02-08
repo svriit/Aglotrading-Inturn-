@@ -1,7 +1,7 @@
 import os
 import json
 import threading
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
 from deriv_api import DerivAPI
@@ -15,6 +15,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # Store active deriv connections per session
 deriv_connections = {}
 
+# OAuth / App config
+DERIV_APP_ID = os.getenv("DERIV_APP_ID", "1089")
+DERIV_OAUTH_URL = f"https://oauth.deriv.com/oauth2/authorize?app_id={DERIV_APP_ID}"
+
 
 @app.route("/")
 def index():
@@ -26,11 +30,30 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@app.route("/oauth/callback")
+def oauth_callback():
+    """
+    OAuth redirect callback.
+    Deriv redirects here with tokens in the URL fragment (#).
+    Since fragments aren't sent to the server, this page uses JS to
+    extract tokens and pass them to the dashboard.
+    """
+    return render_template("oauth_callback.html")
+
+
+@app.route("/oauth/login")
+def oauth_login():
+    """Redirect user to Deriv OAuth login page."""
+    return redirect(DERIV_OAUTH_URL)
+
+
 @app.route("/api/config")
 def get_config():
-    """Return the app ID for frontend WebSocket connections."""
-    app_id = os.getenv("DERIV_APP_ID", "1089")  # 1089 is Deriv's default test app_id
-    return jsonify({"app_id": app_id})
+    """Return the app ID and OAuth URL for frontend."""
+    return jsonify({
+        "app_id": DERIV_APP_ID,
+        "oauth_url": DERIV_OAUTH_URL,
+    })
 
 
 # ─── SocketIO Events ──────────────────────────────────────────────────────────
