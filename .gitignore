@@ -11,3 +11,4 @@ build/
 .idea/
 .vscode/
 *.db
+*.env.example
