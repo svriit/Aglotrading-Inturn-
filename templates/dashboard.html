@@ -32,6 +32,14 @@
         </div>
     </header>
 
+    <!-- Crypto Market Ticker -->
+    <div class="crypto-ticker-strip" id="cryptoTicker">
+        <div class="ticker-label">Crypto</div>
+        <div class="ticker-scroll" id="tickerScroll">
+            <span class="ticker-loading">Loading crypto prices...</span>
+        </div>
+    </div>
+
     <!-- Main Dashboard -->
     <main class="dash-main">
         <!-- Left Sidebar - Market Selection -->
@@ -284,6 +292,7 @@
                         <button onclick="setStake(5)">$5</button>
                         <button onclick="setStake(10)">$10</button>
                         <button onclick="setStake(25)">$25</button>
+                        <button onclick="setStake(50)">$50</button>
                     </div>
                 </div>
 

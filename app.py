@@ -1,6 +1,8 @@
 import os
 import json
+import time
 import threading
+import requests as http_requests
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
@@ -18,6 +20,13 @@ deriv_connections = {}
 # OAuth / App config
 DERIV_APP_ID = os.getenv("DERIV_APP_ID", "1089")
 DERIV_OAUTH_URL = f"https://oauth.deriv.com/oauth2/authorize?app_id={DERIV_APP_ID}"
+
+# CoinMarketCap config
+CMC_API_KEY = os.getenv("CMC_API_KEY", "")
+CMC_BASE_URL = "https://pro-api.coinmarketcap.com/v1"
+
+# Simple cache for CMC data (avoid hitting rate limits)
+_cmc_cache = {"data": None, "timestamp": 0}
 
 
 @app.route("/")
@@ -54,6 +63,74 @@ def get_config():
         "app_id": DERIV_APP_ID,
         "oauth_url": DERIV_OAUTH_URL,
     })
+
+
+@app.route("/api/crypto")
+def get_crypto_prices():
+    """
+    Proxy endpoint for CoinMarketCap cryptocurrency listings.
+    Returns top cryptocurrencies with price, market cap, and 24h change.
+    Uses a 2-minute cache to avoid hitting CMC rate limits.
+    """
+    global _cmc_cache
+
+    # Return cached data if fresh (< 2 min)
+    if _cmc_cache["data"] and (time.time() - _cmc_cache["timestamp"]) < 120:
+        return jsonify(_cmc_cache["data"])
+
+    if not CMC_API_KEY:
+        # Return demo data if no API key configured
+        demo = [
+            {"symbol": "BTC", "name": "Bitcoin", "price": 97245.32, "change_24h": 2.14},
+            {"symbol": "ETH", "name": "Ethereum", "price": 3421.87, "change_24h": -0.82},
+            {"symbol": "BNB", "name": "BNB", "price": 612.45, "change_24h": 1.37},
+            {"symbol": "SOL", "name": "Solana", "price": 198.63, "change_24h": 4.21},
+            {"symbol": "XRP", "name": "XRP", "price": 2.34, "change_24h": -1.05},
+            {"symbol": "ADA", "name": "Cardano", "price": 0.98, "change_24h": 3.42},
+            {"symbol": "DOGE", "name": "Dogecoin", "price": 0.321, "change_24h": -2.18},
+            {"symbol": "DOT", "name": "Polkadot", "price": 7.85, "change_24h": 1.93},
+            {"symbol": "AVAX", "name": "Avalanche", "price": 38.72, "change_24h": 5.11},
+            {"symbol": "LINK", "name": "Chainlink", "price": 18.45, "change_24h": 0.67},
+        ]
+        return jsonify({"success": True, "data": demo, "demo": True})
+
+    try:
+        headers = {
+            "Accepts": "application/json",
+            "X-CMC_PRO_API_KEY": CMC_API_KEY,
+        }
+        params = {
+            "start": "1",
+            "limit": "15",
+            "convert": "USD",
+        }
+        resp = http_requests.get(
+            f"{CMC_BASE_URL}/cryptocurrency/listings/latest",
+            headers=headers,
+            params=params,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        coins = []
+        for item in raw.get("data", []):
+            quote = item.get("quote", {}).get("USD", {})
+            coins.append({
+                "symbol": item.get("symbol"),
+                "name": item.get("name"),
+                "price": round(quote.get("price", 0), 2),
+                "change_24h": round(quote.get("percent_change_24h", 0), 2),
+                "market_cap": round(quote.get("market_cap", 0), 0),
+                "volume_24h": round(quote.get("volume_24h", 0), 0),
+            })
+
+        result = {"success": True, "data": coins, "demo": False}
+        _cmc_cache = {"data": result, "timestamp": time.time()}
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ─── SocketIO Events ──────────────────────────────────────────────────────────

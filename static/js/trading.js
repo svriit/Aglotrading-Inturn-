@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(() => {});
 
     connectDeriv();
+    loadCryptoTicker();
 });
 
 // ─── Auto-login via OAuth token (after OAuth redirect) ────────────────────────
@@ -1116,3 +1117,43 @@ function formatPrice(price) {
     if (price >= 1) return price.toFixed(4);
     return price.toFixed(6);
 }
+
+// ─── Crypto Ticker (CoinMarketCap) ───────────────────────────────────────────
+
+function loadCryptoTicker() {
+    fetch('/api/crypto')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success && !data.data) return;
+            renderCryptoTicker(data.data);
+        })
+        .catch(() => {
+            const scroll = document.getElementById('tickerScroll');
+            if (scroll) scroll.innerHTML = '<span class="ticker-loading">Crypto data unavailable</span>';
+        });
+}
+
+function renderCryptoTicker(coins) {
+    const scroll = document.getElementById('tickerScroll');
+    if (!scroll || !coins || !coins.length) return;
+
+    // Build ticker items (duplicate for seamless loop)
+    let html = '';
+    const buildItems = (items) => items.map(c => {
+        const dir = c.change_24h >= 0 ? 'up' : 'down';
+        const sign = c.change_24h >= 0 ? '+' : '';
+        const priceStr = c.price >= 1 ? c.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : c.price.toString();
+        return `<div class="ticker-item">
+            <span class="ticker-symbol">${c.symbol}</span>
+            <span class="ticker-price">$${priceStr}</span>
+            <span class="ticker-change ${dir}">${sign}${c.change_24h}%</span>
+        </div>`;
+    }).join('');
+
+    // Duplicate content for seamless infinite scroll
+    html = buildItems(coins) + buildItems(coins);
+    scroll.innerHTML = html;
+}
+
+// Refresh crypto ticker every 2 minutes
+setInterval(loadCryptoTicker, 120000);
