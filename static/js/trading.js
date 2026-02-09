@@ -1,1100 +1,414 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Aglo Trading - Trading Engine
-   Handles Deriv WebSocket connection, market data, and trade execution.
+   Aglo Trading - Crypto Dashboard Engine (CoinMarketCap)
+   Handles CMC data loading, chart rendering, coin details, and watchlist.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ─── State ────────────────────────────────────────────────────────────────────
-let derivWs = null;
 let chart = null;
-let isAuthorized = false;
-let currentSymbol = 'R_10';
-let currentSymbolName = 'Volatility 10 Index';
-let currentGranularity = 0; // 0 = ticks
-let currentTradeType = 'rise_fall';
-let tickSubscriptionId = null;
-let proposalSubscriptions = {};
-let openContracts = {};
-let recentTradesList = [];
-let reqIdCounter = 0;
-let pendingRequests = {};
-let lastPrice = null;
-let previousPrice = null;
-let allSymbols = [];       // Full list of symbols from API
-let activeCategory = 'all';
+let allCoins = [];
+let selectedCoin = null;        // Currently selected coin object
+let activeFilter = 'all';
 let searchQuery = '';
-let symbolPrices = {};     // Track last prices for price flash
-
-const APP_ID = '1089'; // Deriv demo app ID
+let watchlist = [];             // Array of coin IDs
+let pollTimer = null;
+let isDemo = true;
 
 // ─── Initialize ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     chart = new TradingChart('priceChart');
 
-    // Check for saved API token
-    const savedToken = localStorage.getItem('deriv_token');
-    if (savedToken) {
-        document.getElementById('apiTokenInput').value = savedToken;
-    }
+    // Load watchlist from localStorage
+    try {
+        watchlist = JSON.parse(localStorage.getItem('aglo_watchlist')) || [];
+    } catch (e) { watchlist = []; }
 
-    // Fetch app config (app_id) from server
-    fetch('/api/config')
-        .then(r => r.json())
-        .then(config => {
-            if (config.app_id) {
-                // Update the APP_ID if server provides one
-                window._DERIV_APP_ID = config.app_id;
-            }
-        })
-        .catch(() => {});
-
-    connectDeriv();
+    // Load all data
+    loadCryptoListings();
+    loadGlobalMetrics();
     loadCryptoTicker();
+    setupSearch();
+
+    // Auto-refresh every 60 seconds
+    setInterval(() => {
+        loadCryptoListings();
+        loadCryptoTicker();
+    }, 60000);
+
+    // Refresh global metrics every 2 minutes
+    setInterval(loadGlobalMetrics, 120000);
 });
 
-// ─── Auto-login via OAuth token (after OAuth redirect) ────────────────────────
-function checkOAuthLogin() {
-    const oauthToken = sessionStorage.getItem('deriv_oauth_token');
-    if (oauthToken && !isAuthorized) {
-        // Auto-authorize with the OAuth token
-        derivWs.send(JSON.stringify({ authorize: oauthToken }));
-        // Clear so we don't re-auth on reconnect loops
-        sessionStorage.removeItem('deriv_oauth_token');
-    }
-}
+// ─── Data Loading ─────────────────────────────────────────────────────────────
 
-// ─── Deriv WebSocket Connection ───────────────────────────────────────────────
-function connectDeriv() {
-    const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+function loadCryptoListings() {
+    fetch('/api/crypto/listings?limit=50')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Failed');
+            allCoins = data.data;
+            isDemo = data.demo;
 
-    derivWs = new WebSocket(wsUrl);
+            updateConnectionStatus(true);
+            document.getElementById('dataBadge').textContent = isDemo ? 'DEMO' : 'LIVE';
+            document.getElementById('dataBadge').className = 'data-badge ' + (isDemo ? '' : 'live');
 
-    derivWs.onopen = () => {
-        updateConnectionStatus(true);
-        // Load available markets from Deriv API
-        loadActiveSymbols();
-        // Subscribe to default symbol ticks
-        subscribeTicks(currentSymbol);
-        // Load historical data
-        loadHistory(currentSymbol, currentGranularity);
-        // Check if user just logged in via OAuth
-        checkOAuthLogin();
-    };
+            renderCoinList();
+            renderMarketTable();
 
-    derivWs.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleDerivMessage(data);
-    };
-
-    derivWs.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        updateConnectionStatus(false);
-    };
-
-    derivWs.onclose = () => {
-        updateConnectionStatus(false);
-        // Reconnect after 3 seconds
-        setTimeout(connectDeriv, 3000);
-    };
-}
-
-function sendRequest(payload) {
-    reqIdCounter++;
-    payload.req_id = reqIdCounter;
-
-    return new Promise((resolve, reject) => {
-        pendingRequests[reqIdCounter] = { resolve, reject };
-        derivWs.send(JSON.stringify(payload));
-
-        // Timeout after 15s
-        setTimeout(() => {
-            if (pendingRequests[payload.req_id]) {
-                delete pendingRequests[payload.req_id];
-                reject(new Error('Request timed out'));
+            // Auto-select first coin if none selected
+            if (!selectedCoin && allCoins.length > 0) {
+                selectCoin(allCoins[0]);
+            } else if (selectedCoin) {
+                // Update selected coin data
+                const updated = allCoins.find(c => c.id === selectedCoin.id);
+                if (updated) {
+                    selectedCoin = updated;
+                    updateDetailPanel(updated);
+                    updatePriceDisplay(updated);
+                }
             }
-        }, 15000);
-    });
-}
 
-// ─── Message Handler ──────────────────────────────────────────────────────────
-function handleDerivMessage(data) {
-    const msgType = data.msg_type;
-
-    // Resolve pending request
-    if (data.req_id && pendingRequests[data.req_id]) {
-        pendingRequests[data.req_id].resolve(data);
-        delete pendingRequests[data.req_id];
-    }
-
-    switch (msgType) {
-        case 'authorize':
-            handleAuthorize(data);
-            break;
-        case 'tick':
-            handleTick(data);
-            break;
-        case 'history':
-            handleHistory(data);
-            break;
-        case 'ohlc':
-            handleOHLC(data);
-            break;
-        case 'candles':
-            handleCandles(data);
-            break;
-        case 'proposal':
-            handleProposal(data);
-            break;
-        case 'buy':
-            handleBuy(data);
-            break;
-        case 'proposal_open_contract':
-            handleContractUpdate(data);
-            break;
-        case 'balance':
-            handleBalance(data);
-            break;
-        case 'portfolio':
-            handlePortfolio(data);
-            break;
-        case 'statement':
-            handleStatement(data);
-            break;
-        case 'active_symbols':
-            handleActiveSymbols(data);
-            break;
-    }
-
-    // Handle errors
-    if (data.error) {
-        console.error('Deriv API Error:', data.error.message);
-        if (data.error.code === 'AuthorizationRequired') {
-            showNotification('Please connect your account to trade', 'error');
-        }
-    }
-}
-
-// ─── Authorization ────────────────────────────────────────────────────────────
-function showAuthModal() {
-    document.getElementById('authModal').classList.add('active');
-    document.getElementById('authError').style.display = 'none';
-}
-
-function hideAuthModal() {
-    document.getElementById('authModal').classList.remove('active');
-}
-
-function connectAccount() {
-    const token = document.getElementById('apiTokenInput').value.trim();
-    if (!token) {
-        showAuthError('Please enter your API token');
-        return;
-    }
-
-    const connectBtn = document.getElementById('connectBtn');
-    connectBtn.textContent = 'Connecting...';
-    connectBtn.disabled = true;
-
-    // Save token if checkbox checked
-    if (document.getElementById('rememberToken').checked) {
-        localStorage.setItem('deriv_token', token);
-    }
-
-    derivWs.send(JSON.stringify({ authorize: token }));
-}
-
-function handleAuthorize(data) {
-    const connectBtn = document.getElementById('connectBtn');
-    connectBtn.textContent = 'Connect';
-    connectBtn.disabled = false;
-
-    if (data.error) {
-        isAuthorized = false;
-        showAuthError(data.error.message);
-        return;
-    }
-
-    isAuthorized = true;
-    const auth = data.authorize;
-
-    // Update UI
-    document.getElementById('accountName').textContent = auth.fullname || auth.loginid;
-    document.getElementById('accountBalance').textContent =
-        `${parseFloat(auth.balance).toFixed(2)} ${auth.currency}`;
-
-    const typeEl = document.getElementById('accountType');
-    const isDemo = auth.loginid.includes('VRTC');
-    typeEl.textContent = isDemo ? 'DEMO' : 'REAL';
-    typeEl.className = 'account-type ' + (isDemo ? 'demo' : 'real');
-
-    document.getElementById('accountInfo').style.display = 'flex';
-    document.getElementById('authBtn').textContent = 'Connected';
-    document.getElementById('authBtn').classList.add('connected');
-
-    hideAuthModal();
-
-    // Subscribe to balance updates
-    derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
-
-    // Get portfolio and statement
-    derivWs.send(JSON.stringify({ portfolio: 1 }));
-    derivWs.send(JSON.stringify({ statement: 1, description: 1, limit: 20 }));
-
-    // Request price proposals
-    requestProposal('CALL');
-    requestProposal('PUT');
-
-    showNotification('Account connected successfully!', 'success');
-}
-
-function showAuthError(msg) {
-    const el = document.getElementById('authError');
-    el.textContent = msg;
-    el.style.display = 'block';
-}
-
-// ─── Market Data ──────────────────────────────────────────────────────────────
-function subscribeTicks(symbol) {
-    // Forget previous subscriptions (both ticks and candles)
-    if (tickSubscriptionId) {
-        derivWs.send(JSON.stringify({ forget: tickSubscriptionId }));
-    }
-    derivWs.send(JSON.stringify({ forget_all: 'ticks' }));
-    derivWs.send(JSON.stringify({ forget_all: 'candles' }));
-
-    // Subscribe to new symbol ticks
-    derivWs.send(JSON.stringify({
-        ticks: symbol,
-        subscribe: 1
-    }));
-}
-
-function loadHistory(symbol, granularity) {
-    chart.clearData();
-
-    // Forget any active candle subscriptions before loading new data
-    derivWs.send(JSON.stringify({ forget_all: 'candles' }));
-
-    if (granularity === 0) {
-        // Ensure chart type is line for ticks
-        chart.setType('line');
-        // Load tick history
-        derivWs.send(JSON.stringify({
-            ticks_history: symbol,
-            count: 500,
-            end: 'latest',
-            style: 'ticks'
-        }));
-    } else {
-        // Forget tick subscriptions when switching to candles
-        derivWs.send(JSON.stringify({ forget_all: 'ticks' }));
-        // Load candle history with subscription for live updates
-        derivWs.send(JSON.stringify({
-            ticks_history: symbol,
-            count: 500,
-            end: 'latest',
-            style: 'candles',
-            granularity: granularity,
-            subscribe: 1
-        }));
-        // Re-subscribe to ticks for price updates (but not chart)
-        derivWs.send(JSON.stringify({
-            ticks: symbol,
-            subscribe: 1
-        }));
-    }
-}
-
-function handleTick(data) {
-    const tick = data.tick;
-    if (!tick) return;
-
-    tickSubscriptionId = data.subscription?.id;
-
-    const price = parseFloat(tick.quote);
-    const symbol = tick.symbol;
-
-    // Update chart
-    if (symbol === currentSymbol && currentGranularity === 0) {
-        chart.addTick(price, tick.epoch);
-    }
-
-    // Update price display
-    previousPrice = lastPrice;
-    lastPrice = price;
-
-    if (symbol === currentSymbol) {
-        updatePriceDisplay(price);
-    }
-
-    // Update sidebar price with color flash
-    const priceEl = document.getElementById(`price_${symbol}`);
-    if (priceEl) {
-        const prevPrice = symbolPrices[symbol];
-        priceEl.textContent = formatPrice(price);
-        if (prevPrice !== undefined) {
-            priceEl.className = 'market-price ' + (price > prevPrice ? 'price-up' : price < prevPrice ? 'price-down' : '');
-        }
-        symbolPrices[symbol] = price;
-    }
-
-    // Hide chart overlay
-    const overlay = document.getElementById('chartOverlay');
-    if (overlay) overlay.classList.add('hidden');
-}
-
-function handleHistory(data) {
-    const history = data.history;
-    if (!history) return;
-
-    const prices = history.prices;
-    const times = history.times;
-
-    chart.clearData();
-    chart.setType('line');
-    for (let i = 0; i < prices.length; i++) {
-        chart.addTick(parseFloat(prices[i]), times[i]);
-    }
-
-    // Update price display from history if we have data
-    if (prices.length > 0) {
-        const latestPrice = parseFloat(prices[prices.length - 1]);
-        updatePriceDisplay(latestPrice);
-        lastPrice = latestPrice;
-    }
-
-    document.getElementById('chartOverlay').classList.add('hidden');
-}
-
-function handleOHLC(data) {
-    const ohlc = data.ohlc;
-    if (!ohlc) return;
-
-    chart.addCandle({
-        open: ohlc.open,
-        high: ohlc.high,
-        low: ohlc.low,
-        close: ohlc.close,
-        epoch: ohlc.open_time
-    });
-
-    // Update price display with close
-    updatePriceDisplay(parseFloat(ohlc.close));
-
-    document.getElementById('chartOverlay').classList.add('hidden');
-}
-
-function handleCandles(data) {
-    const candles = data.candles;
-    if (!candles) return;
-
-    chart.setCandles(candles);
-    chart.setType('candle');
-
-    if (candles.length > 0) {
-        const lastCandle = candles[candles.length - 1];
-        updatePriceDisplay(parseFloat(lastCandle.close));
-    }
-
-    document.getElementById('chartOverlay').classList.add('hidden');
-}
-
-function handleActiveSymbols(data) {
-    if (data.error || !data.active_symbols) {
-        console.error('Failed to load symbols:', data.error?.message);
-        return;
-    }
-
-    const symbols = data.active_symbols;
-    allSymbols = [];
-
-    symbols.forEach(s => {
-        // Categorize: currency (forex), commodity, or composite (synthetic indices)
-        const market = (s.market || '').toLowerCase();
-        const submarket = (s.submarket || '').toLowerCase();
-        let category = 'composite'; // default
-
-        if (market === 'forex' || market === 'cryptocurrency') {
-            category = 'currency';
-        } else if (market === 'commodities' || market === 'commodity') {
-            category = 'commodity';
-        } else if (market === 'synthetic_index' || market === 'indices' ||
-                   market === 'stock_indices' || market === 'basket_index') {
-            category = 'composite';
-        } else if (submarket.includes('forex') || submarket.includes('currency') || submarket.includes('crypto')) {
-            category = 'currency';
-        } else if (submarket.includes('metal') || submarket.includes('energy') || submarket.includes('commodity')) {
-            category = 'commodity';
-        }
-
-        allSymbols.push({
-            symbol: s.symbol,
-            displayName: s.display_name,
-            market: s.market_display_name || s.market,
-            submarket: s.submarket_display_name || s.submarket,
-            category: category,
-            isTradingSuspended: s.is_trading_suspended,
+            document.getElementById('marketLoading').style.display = 'none';
+        })
+        .catch(err => {
+            console.error('Failed to load listings:', err);
+            updateConnectionStatus(false);
         });
-    });
-
-    // Sort alphabetically within each category
-    allSymbols.sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-    // Populate the sidebar
-    populateMarketSidebar();
 }
 
-// ─── Trading ──────────────────────────────────────────────────────────────────
-function requestProposal(contractType) {
-    const duration = parseInt(document.getElementById('durationValue').value);
-    const durationUnit = document.getElementById('durationUnit').value;
-    const amount = parseFloat(document.getElementById('stakeAmount').value);
-
-    // Forget existing proposal subscription
-    if (proposalSubscriptions[contractType]) {
-        derivWs.send(JSON.stringify({ forget: proposalSubscriptions[contractType] }));
-    }
-
-    derivWs.send(JSON.stringify({
-        proposal: 1,
-        amount: amount.toString(),
-        basis: 'stake',
-        contract_type: contractType,
-        currency: 'USD',
-        duration: duration,
-        duration_unit: durationUnit,
-        symbol: currentSymbol,
-        subscribe: 1
-    }));
+function loadGlobalMetrics() {
+    fetch('/api/crypto/global')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const g = data.data;
+            document.getElementById('globalMcap').textContent = formatCompact(g.total_market_cap);
+            document.getElementById('globalVol').textContent = formatCompact(g.total_volume_24h);
+            document.getElementById('globalBtcDom').textContent = g.btc_dominance + '%';
+        })
+        .catch(() => {});
 }
 
-function handleProposal(data) {
-    if (data.error) {
-        console.warn('Proposal error:', data.error.message);
-        return;
-    }
-
-    const proposal = data.proposal;
-    if (!proposal) return;
-
-    proposalSubscriptions[proposal.contract_type] = data.subscription?.id;
-
-    const payout = parseFloat(proposal.payout);
-    const askPrice = parseFloat(proposal.ask_price);
-    const profit = payout - askPrice;
-
-    if (proposal.contract_type === 'CALL') {
-        document.getElementById('risePayout').textContent = `$${payout.toFixed(2)}`;
-    } else if (proposal.contract_type === 'PUT') {
-        document.getElementById('fallPayout').textContent = `$${payout.toFixed(2)}`;
-    }
-
-    document.getElementById('potentialPayout').textContent = `$${payout.toFixed(2)}`;
-    document.getElementById('potentialProfit').textContent = `+$${profit.toFixed(2)}`;
-}
-
-function placeTrade(contractType) {
-    if (!isAuthorized) {
-        showAuthModal();
-        showNotification('Please connect your account first', 'info');
-        return;
-    }
-
-    const duration = parseInt(document.getElementById('durationValue').value);
-    const durationUnit = document.getElementById('durationUnit').value;
-    const amount = parseFloat(document.getElementById('stakeAmount').value);
-
-    // Disable buttons during trade
-    document.getElementById('btnRise').disabled = true;
-    document.getElementById('btnFall').disabled = true;
-
-    showNotification(`Placing ${contractType === 'CALL' ? 'Rise' : 'Fall'} trade...`, 'info');
-
-    // Get proposal first, then buy
-    sendRequest({
-        proposal: 1,
-        amount: amount.toString(),
-        basis: 'stake',
-        contract_type: contractType,
-        currency: 'USD',
-        duration: duration,
-        duration_unit: durationUnit,
-        symbol: currentSymbol,
-    }).then(proposalData => {
-        if (proposalData.error) {
-            throw new Error(proposalData.error.message);
-        }
-
-        const proposalId = proposalData.proposal.id;
-
-        return sendRequest({
-            buy: proposalId,
-            price: amount,
+function loadChartData(coinId) {
+    fetch(`/api/crypto/chart/${coinId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            chart.clearData();
+            chart.setType('line');
+            data.data.forEach(pt => {
+                chart.addTick(pt.price, pt.epoch);
+            });
+            document.getElementById('chartOverlay').classList.add('hidden');
+        })
+        .catch(err => {
+            console.error('Chart load error:', err);
         });
-    }).then(buyData => {
-        if (buyData.error) {
-            throw new Error(buyData.error.message);
-        }
-        handleBuy(buyData);
-    }).catch(err => {
-        showNotification(`Trade failed: ${err.message}`, 'error');
-    }).finally(() => {
-        document.getElementById('btnRise').disabled = false;
-        document.getElementById('btnFall').disabled = false;
-    });
 }
 
-function handleBuy(data) {
-    if (data.error) {
-        showNotification(`Trade failed: ${data.error.message}`, 'error');
-        return;
+function loadCryptoTicker() {
+    fetch('/api/crypto/listings?limit=15')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.data) return;
+            renderCryptoTicker(data.data);
+        })
+        .catch(() => {
+            const scroll = document.getElementById('tickerScroll');
+            if (scroll) scroll.innerHTML = '<span class="ticker-loading">Crypto data unavailable</span>';
+        });
+}
+
+// ─── Coin Selection ───────────────────────────────────────────────────────────
+
+function selectCoin(coin) {
+    selectedCoin = coin;
+
+    // Update sidebar active state
+    document.querySelectorAll('.market-item').forEach(el => el.classList.remove('active'));
+    const activeEl = document.querySelector(`.market-item[data-id="${coin.id}"]`);
+    if (activeEl) activeEl.classList.add('active');
+
+    // Update chart header
+    document.getElementById('chartSymbolName').textContent = `${coin.name} (${coin.symbol})`;
+    updatePriceDisplay(coin);
+
+    // Load chart
+    loadChartData(coin.id);
+
+    // Update detail panel
+    updateDetailPanel(coin);
+
+    // Update watchlist button
+    updateWatchlistButton();
+}
+
+// ─── Render Sidebar Coin List ─────────────────────────────────────────────────
+
+function renderCoinList() {
+    const container = document.getElementById('coinList');
+    const query = searchQuery.toLowerCase().trim();
+    let coins = [...allCoins];
+
+    // Apply filter
+    if (activeFilter === 'top10') {
+        coins = coins.filter(c => c.rank <= 10);
+    } else if (activeFilter === 'gainers') {
+        coins = coins.filter(c => c.change_24h > 0).sort((a, b) => b.change_24h - a.change_24h);
+    } else if (activeFilter === 'losers') {
+        coins = coins.filter(c => c.change_24h < 0).sort((a, b) => a.change_24h - b.change_24h);
     }
 
-    const buy = data.buy;
-    if (!buy) return;
-
-    const contractId = buy.contract_id;
-
-    showNotification(`Trade placed! Contract #${contractId}`, 'success');
-
-    // Show trade result
-    showTradeResult({
-        contractId: contractId,
-        buyPrice: buy.buy_price,
-        payout: buy.payout,
-        longcode: buy.longcode,
-    });
-
-    // Add to recent trades
-    addRecentTrade({
-        contractId: contractId,
-        type: buy.longcode?.includes('higher') || buy.longcode?.includes('rise') ? 'CALL' : 'PUT',
-        amount: buy.buy_price,
-        payout: buy.payout,
-    });
-
-    // Subscribe to contract updates
-    derivWs.send(JSON.stringify({
-        proposal_open_contract: 1,
-        contract_id: contractId,
-        subscribe: 1,
-    }));
-
-    // Refresh portfolio
-    derivWs.send(JSON.stringify({ portfolio: 1 }));
-    // Refresh balance
-    derivWs.send(JSON.stringify({ balance: 1 }));
-}
-
-function handleContractUpdate(data) {
-    const poc = data.proposal_open_contract;
-    if (!poc) return;
-
-    const contractId = poc.contract_id;
-    openContracts[contractId] = poc;
-
-    // Update positions table
-    updatePositionsTable();
-
-    // If contract is sold/expired, show result and refresh
-    if (poc.is_sold || poc.is_expired) {
-        const profit = parseFloat(poc.profit);
-        const type = profit >= 0 ? 'success' : 'error';
-        const prefix = profit >= 0 ? 'Won' : 'Lost';
-        showNotification(`${prefix}: $${Math.abs(profit).toFixed(2)} on contract #${contractId}`, type);
-
-        // Forget subscription
-        if (data.subscription?.id) {
-            derivWs.send(JSON.stringify({ forget: data.subscription.id }));
-        }
-
-        delete openContracts[contractId];
-        updatePositionsTable();
-
-        // Refresh
-        derivWs.send(JSON.stringify({ balance: 1 }));
-        derivWs.send(JSON.stringify({ statement: 1, description: 1, limit: 20 }));
-    }
-}
-
-function handleBalance(data) {
-    if (data.balance) {
-        const balance = data.balance;
-        const amount = typeof balance === 'object' ? balance.balance : balance;
-        const currency = typeof balance === 'object' ? balance.currency : 'USD';
-        document.getElementById('accountBalance').textContent =
-            `${parseFloat(amount).toFixed(2)} ${currency}`;
-    }
-}
-
-function handlePortfolio(data) {
-    const contracts = data.portfolio?.contracts || [];
-    openContracts = {};
-    contracts.forEach(c => {
-        openContracts[c.contract_id] = c;
-    });
-    updatePositionsTable();
-}
-
-function handleStatement(data) {
-    const transactions = data.statement?.transactions || [];
-    updateHistoryTable(transactions);
-}
-
-// ─── UI Updates ───────────────────────────────────────────────────────────────
-function updateConnectionStatus(connected) {
-    const dot = document.querySelector('.status-dot');
-    const text = document.querySelector('.status-text');
-
-    if (connected) {
-        dot.className = 'status-dot connected';
-        text.textContent = 'Connected';
-    } else {
-        dot.className = 'status-dot disconnected';
-        text.textContent = 'Disconnected';
-    }
-}
-
-function updatePriceDisplay(price) {
-    const priceEl = document.getElementById('chartCurrentPrice');
-    priceEl.textContent = formatPrice(price);
-
-    const changeEl = document.getElementById('chartPriceChange');
-    if (previousPrice !== null) {
-        const diff = price - previousPrice;
-        const pct = ((diff / previousPrice) * 100).toFixed(3);
-        if (diff >= 0) {
-            changeEl.textContent = `+${pct}%`;
-            changeEl.className = 'chart-change up';
-            priceEl.style.color = '#22c55e';
-        } else {
-            changeEl.textContent = `${pct}%`;
-            changeEl.className = 'chart-change down';
-            priceEl.style.color = '#ef4444';
-        }
-    }
-}
-
-function updatePositionsTable() {
-    const tbody = document.getElementById('positionsBody');
-    const contracts = Object.values(openContracts);
-
-    if (contracts.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No open positions. Place a trade to get started.</td></tr>';
-        return;
+    // Apply search
+    if (query) {
+        coins = coins.filter(c =>
+            c.name.toLowerCase().includes(query) ||
+            c.symbol.toLowerCase().includes(query)
+        );
     }
 
-    tbody.innerHTML = contracts.map(c => {
-        const profit = parseFloat(c.profit || 0);
-        const plClass = profit >= 0 ? 'pl-positive' : 'pl-negative';
-        const plSign = profit >= 0 ? '+' : '';
-        const type = c.contract_type || '--';
-        const entry = c.entry_spot || c.buy_price || '--';
-        const current = c.current_spot || '--';
-        const stake = c.buy_price || '--';
-        const payout = c.payout || '--';
-
-        return `<tr>
-            <td>#${c.contract_id || '--'}</td>
-            <td>${type}</td>
-            <td>${entry}</td>
-            <td>${current}</td>
-            <td>$${parseFloat(stake).toFixed(2)}</td>
-            <td>$${parseFloat(payout).toFixed(2)}</td>
-            <td class="${plClass}">${plSign}$${profit.toFixed(2)}</td>
-            <td>${c.is_sold ? 'Closed' : 'Open'}</td>
-        </tr>`;
-    }).join('');
-}
-
-function updateHistoryTable(transactions) {
-    const tbody = document.getElementById('historyBody');
-
-    if (transactions.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trade history yet.</td></tr>';
-        return;
+    // Update count
+    const countEl = document.getElementById('searchResultsCount');
+    if (countEl) {
+        countEl.textContent = query ? `${coins.length} result${coins.length !== 1 ? 's' : ''}` : '';
     }
 
-    tbody.innerHTML = transactions.slice(0, 20).map(t => {
-        const date = new Date(t.transaction_time * 1000).toLocaleString();
-        const amount = parseFloat(t.amount || 0);
-        const plClass = amount >= 0 ? 'pl-positive' : 'pl-negative';
-        const plSign = amount >= 0 ? '+' : '';
+    // Show/hide no results
+    document.getElementById('noResults').style.display = coins.length === 0 ? 'block' : 'none';
 
-        return `<tr>
-            <td>${date}</td>
-            <td>#${t.transaction_id || '--'}</td>
-            <td>${t.action_type || '--'}</td>
-            <td>$${Math.abs(amount).toFixed(2)}</td>
-            <td>${t.payout ? '$' + parseFloat(t.payout).toFixed(2) : '--'}</td>
-            <td class="${plClass}">${plSign}$${amount.toFixed(2)}</td>
-        </tr>`;
-    }).join('');
-}
+    // Build HTML
+    container.innerHTML = coins.map(c => {
+        const dir = c.change_24h >= 0 ? 'price-up' : 'price-down';
+        const sign = c.change_24h >= 0 ? '+' : '';
+        const isActive = selectedCoin && selectedCoin.id === c.id ? ' active' : '';
+        const nameHtml = query ? highlightMatch(c.name, query) : escapeHtml(c.name);
 
-function addRecentTrade(trade) {
-    recentTradesList.unshift(trade);
-    if (recentTradesList.length > 10) recentTradesList.pop();
-
-    const container = document.getElementById('recentTrades');
-    container.innerHTML = recentTradesList.map(t => {
-        const typeClass = t.type === 'CALL' ? 'call' : 'put';
-        const typeLabel = t.type === 'CALL' ? 'RISE' : 'FALL';
-        return `<div class="recent-trade-item">
-            <span class="recent-trade-type ${typeClass}">${typeLabel}</span>
-            <span>#${t.contractId}</span>
-            <span class="recent-trade-amount">$${parseFloat(t.amount).toFixed(2)}</span>
+        return `<div class="market-item${isActive}" data-id="${c.id}" onclick="selectCoinById(${c.id})">
+            <div class="coin-item-left">
+                <span class="coin-item-rank">${c.rank}</span>
+                <div class="coin-item-info">
+                    <span class="market-name">${nameHtml}</span>
+                    <span class="coin-item-symbol">${c.symbol}</span>
+                </div>
+            </div>
+            <div class="coin-item-right">
+                <span class="market-price">$${formatPrice(c.price)}</span>
+                <span class="market-change ${dir}">${sign}${c.change_24h.toFixed(2)}%</span>
+            </div>
         </div>`;
     }).join('');
 }
 
-function showTradeResult(trade) {
-    document.getElementById('tradeResultTitle').textContent = 'Trade Placed Successfully';
-    document.getElementById('tradeResultContent').innerHTML = `
-        <div class="result-icon" style="color: var(--accent-green);">&#10003;</div>
-        <div class="result-details">
-            <p><strong>Contract ID:</strong> #${trade.contractId}</p>
-            <p><strong>Buy Price:</strong> $${parseFloat(trade.buyPrice).toFixed(2)}</p>
-            <p><strong>Potential Payout:</strong> $${parseFloat(trade.payout).toFixed(2)}</p>
-            <p style="margin-top: 8px; font-size: 11px; color: var(--text-muted);">${trade.longcode || ''}</p>
-        </div>
-    `;
-    document.getElementById('tradeResultModal').classList.add('active');
+function selectCoinById(id) {
+    const coin = allCoins.find(c => c.id === id);
+    if (coin) selectCoin(coin);
 }
 
-function hideTradeResult() {
-    document.getElementById('tradeResultModal').classList.remove('active');
+// ─── Detail Panel ─────────────────────────────────────────────────────────────
+
+function updateDetailPanel(coin) {
+    document.getElementById('detailCoinName').textContent = coin.name;
+    document.getElementById('detailCoinSymbol').textContent = coin.symbol;
+    document.getElementById('detailCoinRank').textContent = '#' + coin.rank;
+    document.getElementById('detailCoinPrice').textContent = '$' + formatPrice(coin.price);
+
+    const change = coin.change_24h;
+    const changeEl = document.getElementById('detailCoinChange');
+    changeEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+    changeEl.className = 'coin-change-badge ' + (change >= 0 ? 'up' : 'down');
+
+    // Change cards
+    setChangeEl('detailChange1h', coin.change_1h);
+    setChangeEl('detailChange24h', coin.change_24h);
+    setChangeEl('detailChange7d', coin.change_7d);
+
+    // Market stats
+    document.getElementById('detailMarketCap').textContent = '$' + formatCompact(coin.market_cap);
+    document.getElementById('detailVolume').textContent = '$' + formatCompact(coin.volume_24h);
+    document.getElementById('detailCircSupply').textContent = coin.circulating_supply
+        ? formatCompact(coin.circulating_supply) + ' ' + coin.symbol
+        : '--';
+    document.getElementById('detailMaxSupply').textContent = coin.max_supply
+        ? formatCompact(coin.max_supply) + ' ' + coin.symbol
+        : 'Unlimited';
+
+    const volMcap = coin.market_cap ? ((coin.volume_24h / coin.market_cap) * 100).toFixed(2) + '%' : '--';
+    document.getElementById('detailVolMcap').textContent = volMcap;
 }
 
-function showNotification(message, type) {
-    const container = document.getElementById('tradeNotifications');
-    const notif = document.createElement('div');
-    notif.className = `trade-notification ${type}`;
-    notif.textContent = message;
-    container.prepend(notif);
+function setChangeEl(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const v = value || 0;
+    el.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+    el.className = 'stat-card-value ' + (v >= 0 ? 'up' : 'down');
+}
 
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        notif.style.opacity = '0';
-        notif.style.transform = 'translateY(-8px)';
-        setTimeout(() => notif.remove(), 300);
-    }, 5000);
+function updatePriceDisplay(coin) {
+    const priceEl = document.getElementById('chartCurrentPrice');
+    priceEl.textContent = '$' + formatPrice(coin.price);
 
-    // Keep max 3 notifications
-    while (container.children.length > 3) {
-        container.removeChild(container.lastChild);
+    const changeEl = document.getElementById('chartPriceChange');
+    const c = coin.change_24h;
+    changeEl.textContent = (c >= 0 ? '+' : '') + c.toFixed(2) + '%';
+    changeEl.className = 'chart-change ' + (c >= 0 ? 'up' : 'down');
+    priceEl.style.color = c >= 0 ? '#3fb950' : '#f85149';
+}
+
+// ─── Market Table ─────────────────────────────────────────────────────────────
+
+function renderMarketTable() {
+    const tbody = document.getElementById('marketTableBody');
+    if (!allCoins.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Loading market data...</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = allCoins.map(c => {
+        const fmt = (v) => {
+            const cls = v >= 0 ? 'pl-positive' : 'pl-negative';
+            const sign = v >= 0 ? '+' : '';
+            return `<td class="${cls}">${sign}${v.toFixed(2)}%</td>`;
+        };
+        return `<tr onclick="selectCoinById(${c.id})" style="cursor:pointer">
+            <td>${c.rank}</td>
+            <td><strong>${c.symbol}</strong> <span style="color:var(--text-muted)">${c.name}</span></td>
+            <td>$${formatPrice(c.price)}</td>
+            ${fmt(c.change_1h)}
+            ${fmt(c.change_24h)}
+            ${fmt(c.change_7d)}
+            <td>$${formatCompact(c.market_cap)}</td>
+            <td>$${formatCompact(c.volume_24h)}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ─── Watchlist ────────────────────────────────────────────────────────────────
+
+function toggleWatchlist() {
+    if (!selectedCoin) return;
+    const id = selectedCoin.id;
+    const idx = watchlist.indexOf(id);
+    if (idx >= 0) {
+        watchlist.splice(idx, 1);
+        showNotification(`${selectedCoin.name} removed from watchlist`, 'info');
+    } else {
+        watchlist.push(id);
+        showNotification(`${selectedCoin.name} added to watchlist`, 'success');
+    }
+    localStorage.setItem('aglo_watchlist', JSON.stringify(watchlist));
+    updateWatchlistButton();
+    renderWatchlistTable();
+}
+
+function updateWatchlistButton() {
+    if (!selectedCoin) return;
+    const inList = watchlist.includes(selectedCoin.id);
+    const btn = document.getElementById('watchlistBtn');
+    const icon = document.getElementById('watchlistBtnIcon');
+    if (inList) {
+        icon.innerHTML = '&#9733;';
+        btn.innerHTML = '<span id="watchlistBtnIcon">&#9733;</span> Remove from Watchlist';
+        btn.classList.add('in-watchlist');
+    } else {
+        icon.innerHTML = '&#9734;';
+        btn.innerHTML = '<span id="watchlistBtnIcon">&#9734;</span> Add to Watchlist';
+        btn.classList.remove('in-watchlist');
     }
 }
 
-// ─── Dynamic Market Sidebar ───────────────────────────────────────────────────
+function renderWatchlistTable() {
+    const tbody = document.getElementById('watchlistTableBody');
+    const coins = allCoins.filter(c => watchlist.includes(c.id));
 
-function loadActiveSymbols() {
-    // Request active symbols from Deriv API
-    derivWs.send(JSON.stringify({
-        active_symbols: 'brief',
-        product_type: 'basic'
-    }));
-}
-
-function populateMarketSidebar() {
-    const containers = {
-        currency: document.getElementById('items_currency'),
-        commodity: document.getElementById('items_commodity'),
-        composite: document.getElementById('items_composite'),
-    };
-
-    // Clear containers
-    Object.values(containers).forEach(c => { if (c) c.innerHTML = ''; });
-
-    const counts = { currency: 0, commodity: 0, composite: 0 };
-
-    allSymbols.forEach(s => {
-        if (s.isTradingSuspended) return;
-
-        const container = containers[s.category];
-        if (!container) return;
-
-        counts[s.category]++;
-
-        const div = document.createElement('div');
-        div.className = 'market-item';
-        if (s.symbol === currentSymbol) div.classList.add('active');
-        div.dataset.symbol = s.symbol;
-        div.dataset.name = s.displayName;
-        div.dataset.category = s.category;
-        div.onclick = () => selectSymbol(s.symbol, s.displayName);
-
-        div.innerHTML = `
-            <span class="market-name" title="${s.displayName}">${s.displayName}</span>
-            <span class="market-price" id="price_${s.symbol}">--</span>
-        `;
-
-        container.appendChild(div);
-    });
-
-    // Update counts
-    Object.keys(counts).forEach(cat => {
-        const countEl = document.getElementById('count_' + cat);
-        if (countEl) countEl.textContent = counts[cat];
-    });
-
-    // Hide loading
-    const loadingEl = document.getElementById('marketLoading');
-    if (loadingEl) loadingEl.style.display = 'none';
-
-    // Expand composite group by default (it has synthetics)
-    const compositeItems = document.getElementById('items_composite');
-    if (compositeItems) compositeItems.classList.remove('collapsed');
-
-    // Apply current search/category filter
-    applyFilters();
-}
-
-// ─── Interactive Search & Category Filtering ──────────────────────────────────
-
-function filterByCategory(category, btn) {
-    document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeCategory = category;
-    applyFilters();
-}
-
-function applyFilters() {
-    const query = searchQuery.toLowerCase().trim();
-    const groups = document.querySelectorAll('.market-group');
-    let totalVisible = 0;
-
-    groups.forEach(group => {
-        const cat = group.dataset.category;
-        // Hide entire group if category doesn't match
-        if (activeCategory !== 'all' && cat !== activeCategory) {
-            group.classList.add('hidden-category');
-            return;
-        }
-        group.classList.remove('hidden-category');
-
-        const items = group.querySelectorAll('.market-item');
-        let groupVisible = 0;
-
-        items.forEach(item => {
-            const name = (item.dataset.name || '').toLowerCase();
-            const symbol = (item.dataset.symbol || '').toLowerCase();
-            const matches = !query || name.includes(query) || symbol.includes(query);
-
-            if (matches) {
-                item.classList.remove('hidden-item');
-                groupVisible++;
-                totalVisible++;
-
-                // Highlight matching text
-                const nameEl = item.querySelector('.market-name');
-                const originalName = item.dataset.name;
-                if (query && name.includes(query)) {
-                    const idx = name.indexOf(query);
-                    const before = originalName.substring(0, idx);
-                    const match = originalName.substring(idx, idx + query.length);
-                    const after = originalName.substring(idx + query.length);
-                    nameEl.innerHTML = `${escapeHtml(before)}<span class="highlight">${escapeHtml(match)}</span>${escapeHtml(after)}`;
-                } else {
-                    nameEl.textContent = originalName;
-                }
-            } else {
-                item.classList.add('hidden-item');
-                // Reset highlight
-                item.querySelector('.market-name').textContent = item.dataset.name;
-            }
-        });
-
-        // If searching, auto-expand groups that have matches
-        const itemsContainer = group.querySelector('.market-group-items');
-        if (query && groupVisible > 0 && itemsContainer) {
-            itemsContainer.classList.remove('collapsed');
-        }
-    });
-
-    // Show/hide no results
-    const noResults = document.getElementById('noResults');
-    if (noResults) {
-        noResults.style.display = (totalVisible === 0 && (query || activeCategory !== 'all')) ? 'block' : 'none';
+    if (coins.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Add coins to your watchlist by clicking the star icon.</td></tr>';
+        return;
     }
 
-    // Update results count when searching
-    const countEl = document.getElementById('searchResultsCount');
-    if (countEl) {
-        countEl.textContent = query ? `${totalVisible} result${totalVisible !== 1 ? 's' : ''} found` : '';
-    }
+    tbody.innerHTML = coins.map(c => {
+        const cls = c.change_24h >= 0 ? 'pl-positive' : 'pl-negative';
+        const sign = c.change_24h >= 0 ? '+' : '';
+        return `<tr onclick="selectCoinById(${c.id})" style="cursor:pointer">
+            <td>${c.rank}</td>
+            <td><strong>${c.symbol}</strong> ${c.name}</td>
+            <td>$${formatPrice(c.price)}</td>
+            <td class="${cls}">${sign}${c.change_24h.toFixed(2)}%</td>
+            <td>$${formatCompact(c.market_cap)}</td>
+            <td><button class="toolbar-btn" onclick="event.stopPropagation(); removeFromWatchlist(${c.id})">&#10005;</button></td>
+        </tr>`;
+    }).join('');
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function removeFromWatchlist(id) {
+    const idx = watchlist.indexOf(id);
+    if (idx >= 0) watchlist.splice(idx, 1);
+    localStorage.setItem('aglo_watchlist', JSON.stringify(watchlist));
+    updateWatchlistButton();
+    renderWatchlistTable();
 }
 
-// Set up interactive search with debounce
-document.addEventListener('DOMContentLoaded', () => {
+// ─── Crypto Ticker ────────────────────────────────────────────────────────────
+
+function renderCryptoTicker(coins) {
+    const scroll = document.getElementById('tickerScroll');
+    if (!scroll || !coins || !coins.length) return;
+
+    const buildItems = (items) => items.map(c => {
+        const dir = c.change_24h >= 0 ? 'up' : 'down';
+        const sign = c.change_24h >= 0 ? '+' : '';
+        const priceStr = formatPrice(c.price);
+        return `<div class="ticker-item" onclick="selectCoinById(${c.id})" style="cursor:pointer">
+            <span class="ticker-symbol">${c.symbol}</span>
+            <span class="ticker-price">$${priceStr}</span>
+            <span class="ticker-change ${dir}">${sign}${c.change_24h.toFixed(2)}%</span>
+        </div>`;
+    }).join('');
+
+    // Duplicate for seamless infinite scroll
+    scroll.innerHTML = buildItems(coins) + buildItems(coins);
+}
+
+// ─── Search & Filter ──────────────────────────────────────────────────────────
+
+function setupSearch() {
     const searchInput = document.getElementById('marketSearch');
     let searchTimeout = null;
 
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
-            const query = e.target.value;
-            // Debounce for smooth typing
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
-                searchQuery = query;
-                applyFilters();
+                searchQuery = e.target.value;
+                renderCoinList();
             }, 150);
         });
 
-        // Clear search on Escape
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 searchInput.value = '';
                 searchQuery = '';
-                applyFilters();
+                renderCoinList();
                 searchInput.blur();
             }
         });
     }
-});
-
-// ─── User Interactions ────────────────────────────────────────────────────────
-function selectSymbol(symbol, name) {
-    // Update active state
-    document.querySelectorAll('.market-item').forEach(el => el.classList.remove('active'));
-    const activeEl = document.querySelector(`.market-item[data-symbol="${symbol}"]`);
-    if (activeEl) activeEl.classList.add('active');
-
-    currentSymbol = symbol;
-    currentSymbolName = name;
-
-    document.getElementById('chartSymbolName').textContent = name;
-    document.getElementById('chartCurrentPrice').textContent = '--';
-    document.getElementById('chartPriceChange').textContent = '';
-
-    lastPrice = null;
-    previousPrice = null;
-
-    // Resubscribe
-    subscribeTicks(symbol);
-    loadHistory(symbol, currentGranularity);
-
-    // Refresh proposals if authorized
-    if (isAuthorized) {
-        forgetAllProposals();
-        requestProposal('CALL');
-        requestProposal('PUT');
-    }
 }
 
-function toggleMarketGroup(header) {
-    const items = header.nextElementSibling;
-    items.classList.toggle('collapsed');
-    const arrow = header.querySelector('.arrow');
-    arrow.style.transform = items.classList.contains('collapsed') ? 'rotate(-90deg)' : '';
-}
-
-function changeTimeframe(btn, granularity) {
-    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+function filterCoins(filter, btn) {
+    document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-
-    currentGranularity = granularity;
-
-    if (granularity === 0) {
-        chart.setType('line');
-        document.querySelector('.ct-btn[data-type="line"]').classList.add('active');
-        document.querySelector('.ct-btn[data-type="candle"]').classList.remove('active');
-    } else {
-        chart.setType('candle');
-        document.querySelector('.ct-btn[data-type="candle"]').classList.add('active');
-        document.querySelector('.ct-btn[data-type="line"]').classList.remove('active');
-    }
-
-    loadHistory(currentSymbol, granularity);
+    activeFilter = filter;
+    renderCoinList();
 }
+
+// ─── Chart Controls ───────────────────────────────────────────────────────────
 
 function changeChartType(type, btn) {
     document.querySelectorAll('.ct-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     chart.setType(type);
-
-    if (type === 'candle' && currentGranularity === 0) {
-        // Switch to 1m candles
-        currentGranularity = 60;
-        document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-        document.querySelector('.tf-btn[data-granularity="60"]').classList.add('active');
-        loadHistory(currentSymbol, 60);
-    }
 }
-
-function selectTradeType(type, btn) {
-    document.querySelectorAll('.trade-type-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentTradeType = type;
-
-    // Update button labels based on type
-    if (type === 'rise_fall') {
-        document.querySelector('.btn-rise .trade-label').textContent = 'Rise';
-        document.querySelector('.btn-fall .trade-label').textContent = 'Fall';
-    } else {
-        document.querySelector('.btn-rise .trade-label').textContent = 'Higher';
-        document.querySelector('.btn-fall .trade-label').textContent = 'Lower';
-    }
-
-    // Refresh proposals
-    if (isAuthorized) {
-        forgetAllProposals();
-        requestProposal('CALL');
-        requestProposal('PUT');
-    }
-}
-
-function adjustStake(delta) {
-    const input = document.getElementById('stakeAmount');
-    let val = parseFloat(input.value) + delta;
-    if (val < 0.35) val = 0.35;
-    input.value = val.toFixed(2);
-    onStakeChange();
-}
-
-function setStake(amount) {
-    document.getElementById('stakeAmount').value = amount.toFixed(2);
-    onStakeChange();
-}
-
-function onStakeChange() {
-    if (isAuthorized) {
-        forgetAllProposals();
-        requestProposal('CALL');
-        requestProposal('PUT');
-    }
-}
-
-function forgetAllProposals() {
-    derivWs.send(JSON.stringify({ forget_all: 'proposal' }));
-    proposalSubscriptions = {};
-}
-
-// Listen for stake/duration changes
-document.addEventListener('DOMContentLoaded', () => {
-    const stakeInput = document.getElementById('stakeAmount');
-    const durationInput = document.getElementById('durationValue');
-    const durationSelect = document.getElementById('durationUnit');
-
-    if (stakeInput) stakeInput.addEventListener('change', onStakeChange);
-    if (durationInput) durationInput.addEventListener('change', onStakeChange);
-    if (durationSelect) durationSelect.addEventListener('change', onStakeChange);
-});
-
-function switchBottomTab(tab, btn) {
-    document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-
-    btn.classList.add('active');
-    document.getElementById(tab + 'Panel').classList.add('active');
-}
-
-// ─── Chart Toolbar: Indicators, Oscillators, Drawing Tools ────────────────────
 
 function toggleInd(name, btn) {
     const active = btn.classList.toggle('active');
@@ -1111,49 +425,78 @@ function startDrawing(mode) {
     showNotification(`Drawing mode: ${mode}. Click on the chart to place points.`, 'info');
 }
 
-// ─── Utility ──────────────────────────────────────────────────────────────────
+// ─── UI Helpers ───────────────────────────────────────────────────────────────
+
+function switchBottomTab(tab, btn) {
+    document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tab + 'Panel').classList.add('active');
+
+    if (tab === 'watchlist') renderWatchlistTable();
+}
+
+function updateConnectionStatus(connected) {
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    if (connected) {
+        dot.className = 'status-dot connected';
+        text.textContent = 'Connected';
+    } else {
+        dot.className = 'status-dot disconnected';
+        text.textContent = 'Disconnected';
+    }
+}
+
+function showNotification(message, type) {
+    const container = document.getElementById('tradeNotifications');
+    const notif = document.createElement('div');
+    notif.className = `trade-notification ${type}`;
+    notif.textContent = message;
+    container.prepend(notif);
+
+    setTimeout(() => {
+        notif.style.opacity = '0';
+        notif.style.transform = 'translateY(-8px)';
+        setTimeout(() => notif.remove(), 300);
+    }, 4000);
+
+    while (container.children.length > 3) {
+        container.removeChild(container.lastChild);
+    }
+}
+
+// ─── Formatting Utilities ─────────────────────────────────────────────────────
+
 function formatPrice(price) {
-    if (price >= 1000) return price.toFixed(2);
+    if (price == null) return '--';
+    if (price >= 1000) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (price >= 1) return price.toFixed(4);
-    return price.toFixed(6);
+    if (price >= 0.001) return price.toFixed(6);
+    return price.toPrecision(4);
 }
 
-// ─── Crypto Ticker (CoinMarketCap) ───────────────────────────────────────────
-
-function loadCryptoTicker() {
-    fetch('/api/crypto')
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success && !data.data) return;
-            renderCryptoTicker(data.data);
-        })
-        .catch(() => {
-            const scroll = document.getElementById('tickerScroll');
-            if (scroll) scroll.innerHTML = '<span class="ticker-loading">Crypto data unavailable</span>';
-        });
+function formatCompact(num) {
+    if (num == null || num === 0) return '--';
+    if (num >= 1e12) return (num / 1e12).toFixed(2) + 'T';
+    if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+    if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+    if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+    return num.toLocaleString('en-US');
 }
 
-function renderCryptoTicker(coins) {
-    const scroll = document.getElementById('tickerScroll');
-    if (!scroll || !coins || !coins.length) return;
-
-    // Build ticker items (duplicate for seamless loop)
-    let html = '';
-    const buildItems = (items) => items.map(c => {
-        const dir = c.change_24h >= 0 ? 'up' : 'down';
-        const sign = c.change_24h >= 0 ? '+' : '';
-        const priceStr = c.price >= 1 ? c.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : c.price.toString();
-        return `<div class="ticker-item">
-            <span class="ticker-symbol">${c.symbol}</span>
-            <span class="ticker-price">$${priceStr}</span>
-            <span class="ticker-change ${dir}">${sign}${c.change_24h}%</span>
-        </div>`;
-    }).join('');
-
-    // Duplicate content for seamless infinite scroll
-    html = buildItems(coins) + buildItems(coins);
-    scroll.innerHTML = html;
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
-// Refresh crypto ticker every 2 minutes
-setInterval(loadCryptoTicker, 120000);
+function highlightMatch(text, query) {
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(query.toLowerCase());
+    if (idx < 0) return escapeHtml(text);
+    const before = text.substring(0, idx);
+    const match = text.substring(idx, idx + query.length);
+    const after = text.substring(idx + query.length);
+    return `${escapeHtml(before)}<span class="highlight">${escapeHtml(match)}</span>${escapeHtml(after)}`;
+}

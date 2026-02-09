@@ -15,6 +15,5 @@ EXPOSE 5000
 # Environment variables (override at runtime)
 ENV FLASK_ENV=production
 ENV SECRET_KEY=change-this-in-production
-ENV DERIV_APP_ID=1089
 
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "app:app"]
